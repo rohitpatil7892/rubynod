@@ -4,6 +4,11 @@ All notable changes to the **Rubynod AI** VS Code extension are documented here.
 
 ## [0.1.2] - 2025-05-19
 
+### Fixed
+- Chat history panel: full-height scrollable list, wrapped titles (no overlap/clipping)
+- Marketplace README: removed broken top image; bullet lists instead of wide tables
+- Activity bar uses `icon-128.png` (same as Marketplace listing icon)
+
 ### Added
 - Chat **history panel** (clock icon) and **New chat** in the header
 - Multiple chat **sessions per workspace** with migration from older single-thread storage

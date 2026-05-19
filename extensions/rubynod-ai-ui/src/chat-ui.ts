@@ -87,20 +87,22 @@ export function getChatHtml(defaultMode: string): string {
   }
   .history-panel {
     position: absolute;
-    top: 44px;
-    left: 8px;
-    right: 8px;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     z-index: 100;
-    max-height: min(420px, 55vh);
     display: flex;
     flex-direction: column;
-    border: 1px solid var(--rn-border);
-    border-radius: var(--rn-radius);
-    background: var(--rn-surface-2);
-    box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+    min-height: 0;
+    border: none;
+    border-radius: 0;
+    background: var(--rn-surface);
+    box-shadow: none;
   }
   .history-panel.hidden { display: none; }
   .history-panel-head {
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -111,10 +113,15 @@ export function getChatHtml(defaultMode: string): string {
     color: var(--rn-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
+    background: var(--rn-surface-2);
   }
   .history-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
     overflow-y: auto;
-    padding: 4px 0;
+    padding: 4px 0 12px;
+    -webkit-overflow-scrolling: touch;
   }
   .history-item {
     display: flex;
@@ -129,25 +136,34 @@ export function getChatHtml(defaultMode: string): string {
     color: var(--rn-text);
     font-family: inherit;
     font-size: 12px;
+    box-sizing: border-box;
   }
   .history-item:hover { background: var(--rn-accent-soft); }
   .history-item.active {
     background: var(--vscode-list-activeSelectionBackground, var(--rn-accent-soft));
   }
-  .history-item-body { flex: 1; min-width: 0; }
+  .history-item-body { flex: 1; min-width: 0; overflow: hidden; }
   .history-item-title {
     font-weight: 600;
+    line-height: 1.35;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .history-item-meta {
     font-size: 10px;
     color: var(--rn-muted);
-    margin-top: 2px;
+    margin-top: 4px;
+    line-height: 1.35;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .history-item-delete {
     flex-shrink: 0;
@@ -775,7 +791,8 @@ export function getChatHtml(defaultMode: string): string {
       return;
     }
     historyList.innerHTML = chatSessions.map(s => {
-      const meta = (s.preview && s.preview !== s.title ? s.preview : '') || formatSessionTime(s.updatedAt);
+      let meta = (s.preview && s.preview !== s.title ? s.preview : '') || formatSessionTime(s.updatedAt);
+      if (meta.length > 120) meta = meta.slice(0, 117) + '…';
       return '<div class="history-item' + (s.id === activeId || s.active ? ' active' : '') + '" data-id="' + escapeHtml(s.id) + '">' +
         '<div class="history-item-body">' +
         '<div class="history-item-title">' + escapeHtml(s.title || 'New Chat') + '</div>' +

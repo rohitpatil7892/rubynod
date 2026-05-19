@@ -28,6 +28,7 @@
     "version:sync": "bash scripts/ensure-node.sh node scripts/sync-version.mjs",
     "release:manifests": "bash scripts/ensure-node.sh node scripts/generate-update-manifest.mjs",
     "package:ext": "bash scripts/ensure-node.sh sh -c 'npm run build -w rubynod-ai-ui && cd extensions/rubynod-ai-ui && npx @vscode/vsce package --no-dependencies -o ../../dist'",
+    "set-ext-icon": "node scripts/set-extension-icon.mjs",
     "build:ide": "bash scripts/build-ide.sh",
     "launch": "bash scripts/launch-rubynod.sh",
     "install:ext": "code --install-extension dist/rubynod-ai-ui-0.1.0.vsix --force",

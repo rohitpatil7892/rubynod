@@ -5,7 +5,7 @@
   "version": "0.1.2",
   "publisher": "RohitPatil",
   "license": "MIT",
-  "icon": "media/icon.svg",
+  "icon": "media/icon-128.png",
   "galleryBanner": {
     "color": "#1a1a1a",
     "theme": "dark"
@@ -51,7 +51,7 @@
         {
           "id": "rubynod-ai",
           "title": "Rubynod AI",
-          "icon": "media/icon.svg"
+          "icon": "media/icon-128.png"
         }
       ]
     },

@@ -8,21 +8,19 @@
 
 ## Features
 
-| Feature | Description |
-|--------|-------------|
-| **Agent chat** | **Agent**, **Plan**, **Ask**, and **Debug** modes in the Rubynod AI sidebar |
-| **Chat history** | Previous chats list, **New chat**, per-workspace session storage |
-| **Model picker** | Choose **provider** (Ollama / cloud) and **model** per message |
-| **File tools** | Read, write, search/replace, grep, glob — review changes with **Accept / Reject** diffs |
-| **@ context** | Attach files, folders, symbols, drag-and-drop, and context chips |
-| **Codebase index** | Local semantic + full-text search; optional auto-inject into agent prompts |
-| **Inline edit** | `Cmd+K` / `Ctrl+K` on the current selection |
-| **Tab autocomplete** | Optional ghost-text completions while you type |
-| **MCP** | Connect extra tools via `~/.rubynod/mcp.json` |
-| **Checkpoints** | Save workspace checkpoints before agent edits |
-| **Rules & skills** | `AGENTS.md`, `.rubynod/rules/`, `.rubynod/skills/` |
+- **Agent chat** — Agent, Plan, Ask, and Debug modes in the sidebar
+- **Chat history** — Previous chats, New chat, per-workspace sessions
+- **Model picker** — Ollama or cloud provider and model per message
+- **File tools** — Read, write, search/replace, grep, glob; Accept/Reject diffs
+- **@ context** — Files, folders, symbols, drag-and-drop, context chips
+- **Codebase index** — Local semantic and full-text search; optional auto-inject
+- **Inline edit** — `Cmd+K` / `Ctrl+K` on the current selection
+- **Tab autocomplete** — Optional ghost-text while you type
+- **MCP** — Extra tools via `~/.rubynod/mcp.json`
+- **Checkpoints** — Save workspace state before agent edits
+- **Rules and skills** — `AGENTS.md`, `.rubynod/rules/`, `.rubynod/skills/`
 
-**Platforms:** macOS · Windows · Linux
+**Platforms:** macOS, Windows, Linux
 
 ---
 
@@ -84,39 +82,33 @@ ollama pull qwen2.5-coder
 
 ## Keyboard shortcuts
 
-| Shortcut | Action |
-|----------|--------|
-| `Cmd+L` / `Ctrl+L` | Open chat |
-| `Cmd+K` / `Ctrl+K` | Inline edit on selection |
+- `Cmd+L` / `Ctrl+L` — open chat
+- `Cmd+K` / `Ctrl+K` — inline edit on selection
 
 ---
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| **Rubynod: Open Chat** | Focus the chat sidebar |
-| **Rubynod: New Chat** | Start a new conversation |
-| **Rubynod: Start AI Service** | Start or configure the local AI service |
-| **Rubynod: Clear Chat History** | Clear all chats for this workspace |
-| **Rubynod: Build Codebase Index** | Rebuild the local code index |
-| **Rubynod: Select Ollama Model** | Pick default Ollama model |
-| **Rubynod: Add to Chat** | Add file/selection from explorer |
-| **Rubynod: Inline Edit** | Edit selection with AI |
-| **Rubynod: Open Settings** | Jump to Rubynod settings |
+- **Rubynod: Open Chat** — focus the chat sidebar
+- **Rubynod: New Chat** — start a new conversation
+- **Rubynod: Start AI Service** — start or configure the local AI service
+- **Rubynod: Clear Chat History** — clear all chats for this workspace
+- **Rubynod: Build Codebase Index** — rebuild the local code index
+- **Rubynod: Select Ollama Model** — pick default Ollama model
+- **Rubynod: Add to Chat** — add file or selection from explorer
+- **Rubynod: Inline Edit** — edit selection with AI
+- **Rubynod: Open Settings** — jump to Rubynod settings
 
 ---
 
 ## Settings (common)
 
-| Setting | Purpose |
-|---------|---------|
-| `rubynod.ai.repoPath` | Path to cloned `rubynod` repo (AI service) |
-| `rubynod.ai.serviceUrl` | AI service URL (default `http://127.0.0.1:3847`) |
-| `rubynod.models.provider` | `ollama` · `openai` · `anthropic` · `openrouter` |
-| `rubynod.models.chatModel` | Default chat/agent model |
-| `rubynod.chat.defaultMode` | `agent` · `plan` · `ask` · `debug` |
-| `rubynod.index.autoInjectContext` | Auto-attach indexed code to prompts |
+- `rubynod.ai.repoPath` — path to cloned `rubynod` repo (AI service)
+- `rubynod.ai.serviceUrl` — AI service URL (default `http://127.0.0.1:3847`)
+- `rubynod.models.provider` — `ollama`, `openai`, `anthropic`, or `openrouter`
+- `rubynod.models.chatModel` — default chat/agent model
+- `rubynod.chat.defaultMode` — `agent`, `plan`, `ask`, or `debug`
+- `rubynod.index.autoInjectContext` — auto-attach indexed code to prompts
 
 Search **`rubynod`** in Settings for the full list.
 
@@ -124,25 +116,21 @@ Search **`rubynod`** in Settings for the full list.
 
 ## Requirements
 
-| Requirement | Notes |
-|-------------|--------|
-| **VS Code 1.85+** | |
-| **Node.js 20 or 22** | For the AI service (not bundled in the VSIX) |
-| **Ollama** (recommended) | Local LLMs at `http://127.0.0.1:11434` |
-| **ripgrep** (`rg`) | Used by agent search — [install](https://github.com/BurntSushi/ripgrep) |
+- **VS Code 1.85+**
+- **Node.js 20 or 22** — for the AI service (not bundled in the VSIX)
+- **Ollama** (recommended) — local LLMs at `http://127.0.0.1:11434`
+- **ripgrep** (`rg`) — agent search ([install](https://github.com/BurntSushi/ripgrep))
 
 ---
 
 ## Troubleshooting
 
-| Problem | Fix |
-|---------|-----|
-| **AI offline** in chat | Run `npm run start:ai` in the repo, or **Rubynod: Start AI Service** |
-| **`fetch failed`** | AI service not running on port **3847** |
-| **`Cannot register multiple views rubynod.chatView`** | Two Rubynod installs (Marketplace + dev). Disable one in Extensions |
-| **Agent writes wrong files / raw JSON** | Use **Ask** for how-to questions; use **qwen2.5-coder** in **Agent** mode |
-| **Empty file after write** | Update extension; use a tool-capable model |
-| **Tab complete: model required** | Set `rubynod.models.chatModel` or `rubynod.tab.model` |
+- **AI offline** — run `npm run start:ai` or **Rubynod: Start AI Service**
+- **`fetch failed`** — AI service not running on port **3847**
+- **Duplicate `rubynod.chatView`** — disable Marketplace or dev copy in Extensions
+- **Agent writes wrong files** — use **Ask** for how-to; use **qwen2.5-coder** in **Agent** mode
+- **Empty file after write** — update extension; use a tool-capable model
+- **Tab complete: model required** — set `rubynod.models.chatModel` or `rubynod.tab.model`
 
 ---
 
