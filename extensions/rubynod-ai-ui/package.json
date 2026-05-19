@@ -1,15 +1,45 @@
 {
   "name": "rubynod-ai-ui",
   "displayName": "Rubynod AI",
-  "description": "AI coding assistant for Rubynod and VS Code",
+  "description": "Open-source AI coding assistant: agent chat, Ollama & cloud models, file edits, diff review, @ context, indexing, inline edit & tab complete.",
   "version": "0.1.2",
   "publisher": "RohitPatil",
+  "license": "MIT",
+  "icon": "media/icon.svg",
+  "galleryBanner": {
+    "color": "#1a1a1a",
+    "theme": "dark"
+  },
+  "homepage": "https://github.com/rohitpatil7892/rubynod",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rohitpatil7892/rubynod"
+  },
+  "bugs": {
+    "url": "https://github.com/rohitpatil7892/rubynod/issues"
+  },
+  "qna": "marketplace",
+  "keywords": [
+    "ai",
+    "artificial intelligence",
+    "ollama",
+    "copilot",
+    "chat",
+    "agent",
+    "coding assistant",
+    "local llm",
+    "code completion",
+    "inline edit",
+    "mcp"
+  ],
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
     "AI",
-    "Machine Learning"
+    "Machine Learning",
+    "Programming Languages",
+    "Other"
   ],
   "activationEvents": [
     "onStartupFinished"
