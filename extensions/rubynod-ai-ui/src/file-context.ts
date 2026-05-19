@@ -18,7 +18,7 @@ export interface FileRef {
 }
 
 /**
- * Parse @ mentions from chat (Cursor-style):
+ * Parse @ mentions from chat:
  *   @src/foo.ts
  *   @src/foo.ts:10-42
  *   @folder:packages/api

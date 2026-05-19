@@ -16,7 +16,7 @@ export interface MentionSuggestion {
 
 const SKIP = new Set(['node_modules', '.git', 'dist', 'build', '.rubynod']);
 
-/** Fuzzy file/folder/symbol search for @ mentions (Cursor-style autocomplete) */
+/** Fuzzy file/folder/symbol search for @ mentions */
 export async function suggestMentions(query: string, limit = 20): Promise<MentionSuggestion[]> {
   const ws = getWorkspaceRoot();
   const raw = query.replace(/^@/, '');

@@ -30,7 +30,7 @@ interface FileEntry {
   size: number;
 }
 
-/** Cursor-style: folder tree summary + selected file contents */
+/** Folder tree summary + selected file contents for @folder context */
 export async function attachmentFromFolder(
   relPath: string,
   opts?: FolderContextOptions

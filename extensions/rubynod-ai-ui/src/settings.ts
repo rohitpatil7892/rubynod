@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-/** Client settings sent to the AI service (Cursor-parity). */
+/** Client settings sent to the AI service. */
 export interface RubynodClientSettings {
   provider: string;
   model: string;

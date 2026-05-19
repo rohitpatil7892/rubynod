@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getWorkspaceRoot, isYoloMode, isAutoApproveFileWrites } from './settings';
+import { writeWorkspaceFile } from './file-write';
 
 export interface PendingDiff {
   file: string;
@@ -48,13 +49,7 @@ function showDiffReview(diff: PendingDiff): void {
 export async function acceptDiff(file: string): Promise<void> {
   const d = pending.get(file);
   if (!d) return;
-  const ws = getWorkspaceRoot();
-  const abs = path.isAbsolute(file) ? file : path.join(ws, file);
-  const uri = vscode.Uri.file(abs);
-  const edit = new vscode.WorkspaceEdit();
-  const doc = await vscode.workspace.openTextDocument(uri);
-  edit.replace(uri, new vscode.Range(0, 0, doc.lineCount, 0), d.newContent);
-  await vscode.workspace.applyEdit(edit);
+  await writeWorkspaceFile(file, d.newContent);
   pending.delete(file);
   vscode.window.showInformationMessage(`Accepted changes: ${file}`);
 }
@@ -64,15 +59,11 @@ export async function rejectDiff(file: string): Promise<void> {
   if (d) {
     const ws = getWorkspaceRoot();
     const abs = path.isAbsolute(file) ? file : path.join(ws, file);
-    const uri = vscode.Uri.file(abs);
-    const edit = new vscode.WorkspaceEdit();
     if (d.oldContent && fs.existsSync(abs)) {
-      const doc = await vscode.workspace.openTextDocument(uri);
-      edit.replace(uri, new vscode.Range(0, 0, doc.lineCount, 0), d.oldContent);
-      await vscode.workspace.applyEdit(edit);
+      await writeWorkspaceFile(file, d.oldContent);
     } else if (!d.oldContent && fs.existsSync(abs)) {
-      edit.deleteFile(uri, { ignoreIfNotExists: true });
-      await vscode.workspace.applyEdit(edit);
+      const uri = vscode.Uri.file(abs);
+      await vscode.workspace.fs.delete(uri, { useTrash: true });
     }
   }
   pending.delete(file);
@@ -93,13 +84,8 @@ export async function undoLastCheckpoint(): Promise<void> {
     vscode.window.showWarningMessage('No checkpoints');
     return;
   }
-  const ws = getWorkspaceRoot();
   for (const [rel, content] of cp.files) {
-    const uri = vscode.Uri.file(path.join(ws, rel));
-    const edit = new vscode.WorkspaceEdit();
-    const doc = await vscode.workspace.openTextDocument(uri);
-    edit.replace(uri, new vscode.Range(0, 0, doc.lineCount, 0), content);
-    await vscode.workspace.applyEdit(edit);
+    await writeWorkspaceFile(rel, content);
   }
   vscode.window.showInformationMessage(`Restored checkpoint: ${cp.label}`);
 }

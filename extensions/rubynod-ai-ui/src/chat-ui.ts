@@ -1,4 +1,4 @@
-/** Rubynod chat webview — polished Cursor-style UI */
+/** Rubynod chat webview */
 export function getChatHtml(defaultMode: string): string {
   const nonce = String(Date.now());
   return `<!DOCTYPE html>
@@ -528,6 +528,14 @@ export function getChatHtml(defaultMode: string): string {
     toolArgs: {},
   };
 
+  function stripLineNumbers(text) {
+    if (!text) return '';
+    return String(text).split('\\n').map(function(line) {
+      var m = line.match(/^\\d+\\|(.*)$/);
+      return m ? m[1] : line;
+    }).join('\\n');
+  }
+
   function writeFileContents(args) {
     if (!args) return '';
     return args.contents || args.content || args.body || args.text || args.code || '';
@@ -539,11 +547,17 @@ export function getChatHtml(defaultMode: string): string {
     return map[ext] || ext || 'code';
   }
 
+  function toolBodyCodeHtml(text, filePath) {
+    const clean = stripLineNumbers(text);
+    if (!clean.trim()) return escapeHtml(text || '');
+    const lang = langFromPath(filePath);
+    return '<pre class="code-block" style="margin:0"><code>' + highlightCode(clean.slice(0, 4000), lang) + '</code></pre>';
+  }
+
   function toolBodyWriteHtml(args) {
     const text = writeFileContents(args);
     if (!text) return '';
-    const lang = langFromPath(args.path);
-    return '<pre class="code-block" style="margin:0"><code>' + highlightCode(text.slice(0, 4000), lang) + '</code></pre>';
+    return toolBodyCodeHtml(text, args.path);
   }
 
   const stepIcons = { think: '◆', plan: '◇', explore: '↳', edit: '✎', run: '$_', search: '⌕' };
@@ -589,7 +603,7 @@ export function getChatHtml(defaultMode: string): string {
   }
 
   function highlightCode(code, lang) {
-    let s = escapeHtml(code);
+    let s = escapeHtml(stripLineNumbers(code));
     s = s.replace(/\\/\\*[\\s\\S]*?\\*\\//g, function(m) { return '<span class="tok-comment">' + m + '</span>'; });
     s = s.replace(/(^|[\\s;{}])(\\/\\/[^\\n]*)/g, function(_, pre, cm) { return pre + '<span class="tok-comment">' + cm + '</span>'; });
     s = s.replace(/&quot;(?:[^&]|&(?!quot;))*&quot;/g, function(m) { return '<span class="tok-string">' + m + '</span>'; });
@@ -855,7 +869,9 @@ export function getChatHtml(defaultMode: string): string {
     if (name === 'write_file' && writeFileContents(args)) {
       body.innerHTML = toolBodyWriteHtml(args);
       if (result) body.insertAdjacentHTML('beforeend', '<div class="tool-result">' + escapeHtml(String(result)) + '</div>');
-    } else if (result) body.textContent = String(result).slice(0, 4000);
+    } else if (name === 'read_file' && result && !String(result).startsWith('Error:')) {
+      body.innerHTML = toolBodyCodeHtml(String(result), args.path);
+    } else if (result) body.textContent = stripLineNumbers(String(result)).slice(0, 4000);
     delete state.toolArgs[id];
     scroll();
   }
@@ -881,7 +897,9 @@ export function getChatHtml(defaultMode: string): string {
     if (name === 'write_file' && writeFileContents(args)) {
       body.innerHTML = toolBodyWriteHtml(args);
       if (result) body.insertAdjacentHTML('beforeend', '<div class="tool-result">' + escapeHtml(String(result)) + '</div>');
-    } else if (result) body.textContent = String(result).slice(0, 4000);
+    } else if (name === 'read_file' && result && !String(result).startsWith('Error:')) {
+      body.innerHTML = toolBodyCodeHtml(String(result), args.path);
+    } else if (result) body.textContent = stripLineNumbers(String(result)).slice(0, 4000);
     else if (kind === 'terminal' && args.command) body.textContent = '$ ' + args.command;
     else if (args.path) body.textContent = args.path;
     else if (Object.keys(args).length) body.textContent = JSON.stringify(args, null, 2).slice(0, 800);

@@ -12,7 +12,7 @@ export interface SymbolSuggestion {
   description?: string;
 }
 
-/** Workspace symbol search for @symbol: mentions (Cursor-style) */
+/** Workspace symbol search for @symbol: mentions */
 export async function searchWorkspaceSymbols(
   query: string,
   limit = 15

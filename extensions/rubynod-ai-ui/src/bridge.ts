@@ -5,6 +5,7 @@ import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getWorkspaceRoot } from './settings';
 import { buildRipgrepShell, isWindows } from './platform';
+import { writeWorkspaceFile } from './file-write';
 
 const execAsync = promisify(exec);
 
@@ -50,24 +51,18 @@ export function createIdeBridge(): Record<string, (...args: any[]) => Promise<un
       }
     },
     writeFile: async (filePath: string, content: string) => {
-      const abs = path.isAbsolute(filePath) ? filePath : path.join(ws(), filePath);
-      fs.mkdirSync(path.dirname(abs), { recursive: true });
-      fs.writeFileSync(abs, content);
-      const uri = vscode.Uri.file(abs);
-      const doc = await vscode.workspace.openTextDocument(uri);
-      const edit = new vscode.WorkspaceEdit();
-      const full = doc.getText();
-      const range = new vscode.Range(0, 0, doc.lineCount, 0);
-      edit.replace(uri, range, content);
-      await vscode.workspace.applyEdit(edit);
+      await writeWorkspaceFile(filePath, content);
     },
     searchReplace: async (filePath: string, oldStr: string, newStr: string, replaceAll?: boolean) => {
       const abs = path.isAbsolute(filePath) ? filePath : path.join(ws(), filePath);
       if (!fs.existsSync(abs)) return `Error: File not found: ${filePath}`;
-      let content = fs.readFileSync(abs, 'utf8');
+      const openDoc = vscode.workspace.textDocuments.find(
+        (d) => d.uri.fsPath === abs && !d.isClosed
+      );
+      let content = openDoc ? openDoc.getText() : fs.readFileSync(abs, 'utf8');
       if (replaceAll) content = content.split(oldStr).join(newStr);
       else content = content.replace(oldStr, newStr);
-      fs.writeFileSync(abs, content);
+      await writeWorkspaceFile(filePath, content);
       return content;
     },
     glob: async (pattern: string, cwd?: string) => {

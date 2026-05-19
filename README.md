@@ -1,10 +1,10 @@
 # Rubynod
 
-VS Code-class code editor with Cursor-like AI: agent chat, codebase indexing, MCP, terminal tools, Composer, and inline edit.
+VS Code-class code editor with a built-in AI assistant: agent chat, codebase indexing, MCP, terminal tools, multi-file edits, and inline edit.
 
 **Platforms:** macOS · Windows · Linux ([details](docs/platforms.md))
 
-**Cursor / VS Code parity:** [gap analysis](docs/gap-analysis.md) · [performance tuning](docs/performance.md)
+**Docs:** [gap analysis](docs/gap-analysis.md) · [performance tuning](docs/performance.md)
 
 | | macOS | Windows | Linux |
 |---|--------|---------|--------|
@@ -88,7 +88,7 @@ cd vscode-fork; npm install; npm run compile
 .\scripts\code.bat
 ```
 
-## Codebase indexing (like Cursor)
+## Codebase indexing
 
 Rubynod indexes your repo locally (chunks + symbols + semantic search) and **auto-injects relevant code** into agent messages.
 
@@ -99,7 +99,7 @@ Rubynod indexes your repo locally (chunks + symbols + semantic search) and **aut
 ## Configuration
 
 **Settings UI:** Cmd+, → search `rubynod`, or command **Rubynod: Open Settings**.  
-Full reference: [docs/settings.md](docs/settings.md) (Cursor-style groups: Models, Chat, Tab, Agent, Index, Privacy, MCP).
+Full reference: [docs/settings.md](docs/settings.md) (Models, Chat, Tab, Agent, Index, Privacy, MCP).
 
 | File | Purpose |
 |------|---------|

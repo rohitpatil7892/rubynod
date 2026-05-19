@@ -1,7 +1,7 @@
 {
   "name": "rubynod-ai-ui",
   "displayName": "Rubynod AI",
-  "description": "Cursor-like AI for Rubynod and VS Code",
+  "description": "AI coding assistant for Rubynod and VS Code",
   "version": "0.1.0",
   "publisher": "rubynod",
   "engines": { "vscode": "^1.85.0" },
@@ -36,7 +36,7 @@
       { "command": "rubynod.addFolderToChat", "title": "Rubynod: Add Folder to Chat" },
       { "command": "rubynod.buildIndex", "title": "Rubynod: Build Codebase Index" },
       { "command": "rubynod.addMemory", "title": "Rubynod: Add Memory" },
-      { "command": "rubynod.openGapAnalysis", "title": "Rubynod: Feature Gap vs Cursor/VS Code" },
+      { "command": "rubynod.openGapAnalysis", "title": "Rubynod: Feature Gap Analysis" },
       { "command": "rubynod.checkForUpdates", "title": "Rubynod: Check for Updates" },
       { "command": "rubynod.selectOllamaModel", "title": "Rubynod: Select Ollama Model" },
       { "command": "rubynod.acceptDiff", "title": "Rubynod: Accept Diff" },
@@ -113,7 +113,7 @@
         "rubynod.models.chatModel": {
           "type": "string",
           "default": "llama3.2",
-          "description": "Model for Chat and Agent (Cursor: default chat model).",
+          "description": "Model for Chat and Agent.",
           "order": 11
         },
         "rubynod.models.tabModel": {
@@ -149,7 +149,7 @@
         "rubynod.models.apiKey": {
           "type": "string",
           "default": "",
-          "markdownDescription": "API key for the provider. Prefer env vars (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) in shared machines. Cursor stores keys in your account; Rubynod uses local settings.",
+          "markdownDescription": "API key for the provider. Prefer env vars (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) on shared machines. Rubynod stores keys in local settings.",
           "order": 15
         },
         "rubynod.models.temperature": {
@@ -179,7 +179,7 @@
             "Ask only: Q&A without tools.",
             "Debug: focus on logs and reproduction."
           ],
-          "description": "Default mode when opening Chat (Cursor: mode picker default).",
+          "description": "Default mode when opening Chat.",
           "order": 20
         },
         "rubynod.chat.includeActiveFile": {
@@ -210,7 +210,7 @@
         "rubynod.tab.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable Tab ghost-text autocomplete (Cursor Tab).",
+          "description": "Enable Tab ghost-text autocomplete.",
           "order": 30
         },
         "rubynod.tab.debounceMs": {
@@ -250,7 +250,7 @@
         "rubynod.agent.yoloMode": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "**YOLO mode** (Cursor-style): auto-approve terminal + file writes. Use only in trusted repos.",
+          "markdownDescription": "**YOLO mode**: auto-approve terminal + file writes. Use only in trusted repos.",
           "order": 42
         },
         "rubynod.agent.maxTurns": {
@@ -277,7 +277,7 @@
         "rubynod.index.autoInjectContext": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "**Cursor-like:** Automatically attach relevant indexed code to every agent message (semantic search over your repo).",
+          "markdownDescription": "Automatically attach relevant indexed code to every agent message (semantic search over your repo).",
           "order": 52
         },
         "rubynod.index.maxAutoContextChunks": {
@@ -373,7 +373,7 @@
         "rubynod.privacy.privacyMode": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "**Privacy mode** (Cursor): avoid sending code to cloud embedders; prefer local index only.",
+          "markdownDescription": "**Privacy mode**: avoid sending code to cloud embedders; prefer local index only.",
           "order": 60
         },
         "rubynod.privacy.localIndexOnly": {

@@ -1,4 +1,4 @@
-# Rubynod vs VS Code vs Cursor — gap analysis
+# Rubynod vs VS Code — gap analysis
 
 Rubynod = **Code-OSS shell** (fork scripts) + **Rubynod AI extension** + **local AI service**. Many VS Code features come from the editor; AI features come from the extension/service.
 
@@ -27,59 +27,59 @@ Rubynod = **Code-OSS shell** (fork scripts) + **Rubynod AI extension** + **local
 
 ---
 
-## Cursor AI — chat & agent
+## AI assistant — chat & agent
 
-| Capability | Cursor | Rubynod | Priority |
-|------------|--------|---------|----------|
-| Chat + streaming | ✅ | ✅ | — |
-| Agent tool loop (read/write/terminal) | ✅ | ✅ | — |
-| Plan / Ask / Debug modes | ✅ | ✅ | — |
-| Stop / cancel generation | ✅ | ✅ | — |
-| @file, @folder, line ranges | ✅ | ✅ | — |
-| @codebase (indexed retrieval) | ✅ | ✅ | Optimized hybrid search |
-| @ symbol (workspace) | ✅ | ✅ | `symbol:` mentions |
-| Thinking / tool UI in chat | ✅ | ✅ | — |
-| File chips, drag-drop context | ✅ | ✅ | — |
-| Rules (`.cursor/rules`, AGENTS.md) | ✅ | ✅ | `.rubynod/rules` + Cursor paths |
-| Skills (SKILL.md) | ✅ | ✅ | — |
-| MCP tools | ✅ | ✅ | `~/.rubynod/mcp.json` |
-| YOLO / auto-approve | ✅ | ✅ | Settings |
-| Memories (persistent facts) | ✅ | ✅ | `.rubynod/memories.json` |
-| Image attachments in chat | ✅ | ❌ | P2 |
-| @web / live docs | ✅ | 🟡 | `web_search` tool (opt-in) |
-| Background / cloud agents | ✅ | 🟡 | API stub only |
-| PR review / Bugbot | ✅ | ❌ | P2 |
-| Team rules sync | ✅ | ❌ | P2 |
-| Automations / hooks | ✅ | ❌ | P2 |
+| Capability | Rubynod | Priority / notes |
+|------------|---------|------------------|
+| Chat + streaming | ✅ | — |
+| Agent tool loop (read/write/terminal) | ✅ | — |
+| Plan / Ask / Debug modes | ✅ | — |
+| Stop / cancel generation | ✅ | — |
+| @file, @folder, line ranges | ✅ | — |
+| @codebase (indexed retrieval) | ✅ | Optimized hybrid search |
+| @ symbol (workspace) | ✅ | `symbol:` mentions |
+| Thinking / tool UI in chat | ✅ | — |
+| File chips, drag-drop context | ✅ | — |
+| Rules (AGENTS.md, `.rubynod/rules`) | ✅ | Also reads `.cursor/rules` if present |
+| Skills (SKILL.md) | ✅ | — |
+| MCP tools | ✅ | `~/.rubynod/mcp.json` |
+| YOLO / auto-approve | ✅ | Settings |
+| Memories (persistent facts) | ✅ | `.rubynod/memories.json` |
+| Image attachments in chat | ❌ | P2 |
+| @web / live docs | 🟡 | `web_search` tool (opt-in) |
+| Background / cloud agents | 🟡 | API stub only |
+| PR review / Bugbot | ❌ | P2 |
+| Team rules sync | ❌ | P2 |
+| Automations / hooks | ❌ | P2 |
 
 ---
 
-## Cursor AI — editing
+## AI assistant — editing
 
-| Capability | Cursor | Rubynod | Priority |
-|------------|--------|---------|----------|
-| Inline edit (Cmd+K) | ✅ | ✅ | — |
-| Tab autocomplete (ghost text) | ✅ | ✅ | Debounced, single in-flight |
-| Composer multi-file | ✅ | 🟡 | Checkpoints; UI polish ongoing |
-| Apply diff hunk accept/reject | ✅ | 🟡 | Bridge + composer flow |
-| Shadow workspace (isolated edits) | ✅ | ❌ | P2 |
+| Capability | Rubynod | Priority / notes |
+|------------|---------|------------------|
+| Inline edit (Cmd+K) | ✅ | — |
+| Tab autocomplete (ghost text) | ✅ | Debounced, single in-flight |
+| Multi-file edit targets | 🟡 | Checkpoints; UI polish ongoing |
+| Apply diff hunk accept/reject | 🟡 | Bridge + diff review flow |
+| Shadow workspace (isolated edits) | ❌ | P2 |
 
 ---
 
 ## Indexing & performance (key differentiator)
 
-| Capability | Cursor | Rubynod | Status |
-|------------|--------|---------|--------|
-| Local index + embeddings | ✅ | ✅ | Hash embeddings (local) |
-| Incremental index on save | ✅ | ✅ | Debounced `update-file` |
-| Skip unchanged files (mtime) | ✅ | ✅ | Server-side skip |
-| No full-table semantic scan | ✅ | ✅ | Candidate-limited search |
-| Index build queue (single-flight) | — | ✅ | Per-workspace |
-| Context pack cache | — | ✅ | TTL cache on AI service |
-| Lazy index on service start | — | ✅ | Extension triggers build |
-| Configurable caps (chars/files/chunks) | ✅ | ✅ | Settings |
-| FTS5 / vector DB at scale | ✅ | 🟡 | FTS table optional; P1 ANN later |
-| Background worker (extension host) | ✅ | 🟡 | Index runs in Node service |
+| Capability | Rubynod | Status |
+|------------|---------|--------|
+| Local index + embeddings | ✅ | Hash embeddings (local) |
+| Incremental index on save | ✅ | Debounced `update-file` |
+| Skip unchanged files (mtime) | ✅ | Server-side skip |
+| No full-table semantic scan | ✅ | Candidate-limited search |
+| Index build queue (single-flight) | ✅ | Per-workspace |
+| Context pack cache | ✅ | TTL cache on AI service |
+| Lazy index on service start | ✅ | Extension triggers build |
+| Configurable caps (chars/files/chunks) | ✅ | Settings |
+| FTS5 / vector DB at scale | 🟡 | FTS table optional; P1 ANN later |
+| Background worker (extension host) | 🟡 | Index runs in Node service |
 
 See [performance.md](./performance.md) for tuning.
 
@@ -94,7 +94,7 @@ See [performance.md](./performance.md) for tuning.
 
 ### P1 (next)
 - Multi-root: index all folders, pick context root per file
-- Composer diff UI parity with Cursor
+- Richer diff UI for multi-file edits
 - File watcher index (not only on save)
 - Optional cloud embeddings with privacy gate
 

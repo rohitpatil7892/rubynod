@@ -1,4 +1,7 @@
 {
+  "git.openRepositoryInParentFolders": "never",
+  "git.autoRepositoryDetection": true,
+  "git.repositoryScanMaxDepth": 1,
   "rubynod.models.provider": "ollama",
   "rubynod.models.chatModel": "llama3.2",
   "rubynod.models.baseUrl": "http://127.0.0.1:11434/v1",

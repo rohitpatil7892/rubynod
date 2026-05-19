@@ -132,7 +132,7 @@ export class CodebaseIndexer {
     return this.store.hybridSearch(query, limit ?? 12, this.searchCandidateLimit);
   }
 
-  /** Cursor-like: build ready-to-send context for the AI from the user query */
+  /** Build ready-to-send context for the AI from the user query */
   getContextPack(query: string, opts?: { limit?: number; maxChars?: number }): ContextPack {
     const limit = opts?.limit ?? 10;
     const chunks = this.search(query, limit);

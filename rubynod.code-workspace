@@ -1,0 +1,13 @@
+{
+  "folders": [
+    {
+      "name": "Rubynod",
+      "path": "."
+    }
+  ],
+  "settings": {
+    "git.openRepositoryInParentFolders": "never",
+    "git.autoRepositoryDetection": true,
+    "git.repositoryScanMaxDepth": 1
+  }
+}

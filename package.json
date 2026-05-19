@@ -2,7 +2,7 @@
   "name": "rubynod",
   "version": "0.1.0",
   "private": true,
-  "description": "Rubynod — VS Code-class editor with Cursor-like AI",
+  "description": "Rubynod — VS Code-class editor with built-in AI assistant",
   "repository": {
     "type": "git",
     "url": "https://github.com/rohitpatil7892/rubynod.git"

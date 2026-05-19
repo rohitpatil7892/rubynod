@@ -1,6 +1,6 @@
-# Rubynod indexing (Cursor-style)
+# Rubynod indexing
 
-Rubynod indexes your workspace so the AI understands your codebase — like Cursor’s codebase indexing.
+Rubynod indexes your workspace so the AI understands your codebase with local semantic and full-text search.
 
 ## What gets indexed
 

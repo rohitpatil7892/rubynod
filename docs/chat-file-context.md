@@ -1,8 +1,8 @@
-# File & folder context (Cursor-style)
+# File & folder context
 
-How Rubynod gives the AI your files and folders — same patterns as Cursor.
+How Rubynod gives the AI your files and folders.
 
-## Two layers (like Cursor)
+## Two layers
 
 ```mermaid
 flowchart TB
@@ -115,34 +115,19 @@ Attached files/folders show as chips above the input:
 
 ---
 
-## Cursor vs Rubynod checklist
+## Feature checklist
 
-| Feature | Cursor | Rubynod |
-|---------|--------|---------|
-| @file | Yes | Yes |
-| @file:lines | Yes | Yes |
-| @folder | Yes | Yes (`@folder:` or `path/`) |
-| @ autocomplete | Yes | Yes |
-| Drag-drop | Yes | Yes |
-| Right-click file | Yes | Yes |
-| Right-click folder | Yes | Yes |
-| Chips + open file | Yes | Yes (click chip) |
-| Active file auto | Yes | Yes (setting) |
-| Images in chat | Yes | Planned |
-
----
-
-## Examples
-
-```
-Fix the bug in @packages/rubynod-ai/src/agent.ts:60-80
-```
-
-```
-Review the API layer @folder:packages/rubynod-ai/src
-```
-
-```
-How does indexing work? @codebase
-```
-(@codebase uses the index — see [indexing.md](indexing.md))
+| Feature | Rubynod |
+|---------|---------|
+| @file | Yes |
+| @file:lines | Yes |
+| @folder | Yes (`@folder:` or `path/`) |
+| @ autocomplete | Yes |
+| Drag-drop | Yes |
+| Right-click file | Yes |
+| Right-click folder | Yes |
+| Chips + open file | Yes (click chip) |
+| Active file auto | Yes (setting) |
+| Open tabs list | Yes (setting) |
+| @codebase | Yes (index + auto-inject) |
+| @symbol | Yes (`@symbol:name`) |

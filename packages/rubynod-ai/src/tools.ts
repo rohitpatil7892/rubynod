@@ -201,7 +201,7 @@ export function getToolDefinitions(
       type: 'function' as const,
       function: {
         name: 'save_memory',
-        description: 'Save a persistent fact to .rubynod/memories.json (Cursor-style memories)',
+        description: 'Save a persistent fact to .rubynod/memories.json',
         parameters: {
           type: 'object',
           properties: { text: { type: 'string' } },

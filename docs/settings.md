@@ -1,13 +1,13 @@
-# Rubynod settings (Cursor-style)
+# Rubynod settings
 
 Open in VS Code: **Cmd+,** → search `rubynod`, or run **Rubynod: Open Settings**.
 
-## Cursor → Rubynod mapping
+## Setting groups
 
-| Cursor | Rubynod setting |
-|--------|-----------------|
-| Models → default model | `rubynod.models.chatModel` |
-| Cursor Tab | `rubynod.tab.enabled`, `rubynod.tab.debounceMs` |
+| Area | Rubynod settings |
+|------|------------------|
+| Models | `rubynod.models.chatModel`, `rubynod.models.provider` |
+| Tab autocomplete | `rubynod.tab.enabled`, `rubynod.tab.debounceMs` |
 | Chat default mode | `rubynod.chat.defaultMode` |
 | Codebase indexing | `rubynod.index.autoIndexOnOpen` |
 | Privacy mode | `rubynod.privacy.privacyMode` |
@@ -48,24 +48,14 @@ Open in VS Code: **Cmd+,** → search `rubynod`, or run **Rubynod: Open Settings
 
 ### Privacy (`rubynod.privacy.*`)
 - **privacyMode** — minimize cloud code exposure
-- **localIndexOnly** — local embeddings for @codebase
-- **telemetry** — opt-in analytics
+- **localIndexOnly** — keep embeddings local
+- **telemetry** — off by default
 
 ### MCP (`rubynod.mcp.*`)
-- **enabled** — load MCP tools for the agent
+- **enabled** — connect MCP servers from config files
 
-### Service (`rubynod.ai.serviceUrl`)
-- URL of `rubynod-ai` process (default `http://127.0.0.1:3847`)
+### Performance (`rubynod.performance.*`)
+- **indexSaveDebounceMs**, **indexBuildConcurrency**, **searchCandidateLimit**, **contextCacheTtlSec**
 
-## Workspace vs user settings
-
-| Scope | Use for |
-|-------|---------|
-| **User** | API keys, default models, privacy |
-| **Workspace** | Team model choice, stricter agent approval |
-
-Example workspace `.vscode/settings.json` is included in this repo.
-
-## Deprecated keys
-
-Old `rubynod.ai.*` keys still work but show deprecation hints — migrate to `rubynod.models.*`, `rubynod.chat.*`, etc.
+### Update (`rubynod.update.*`)
+- **enabled**, **githubRepo**, **checkIntervalHours**
