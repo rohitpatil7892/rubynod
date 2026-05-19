@@ -44,25 +44,36 @@ npm run dev:ai
 # Listens on http://127.0.0.1:3847
 ```
 
-### 3. Use with VS Code / Rubynod
-
-**Extension dev mode** (fastest):
+### 3. Launch Rubynod IDE (recommended)
 
 ```bash
+npm run launch
+# Or: ./scripts/launch-rubynod.sh
+```
+
+Starts the AI service and opens **VS Code** with the Rubynod extension (Ollama-first). Requires [VS Code](https://code.visualstudio.com/) or run `brew install --cask visual-studio-code`.
+
+**Manual:**
+
+```bash
+npm run dev:ai
 code --extensionDevelopmentPath=extensions/rubynod-ai-ui
 ```
 
 Set `rubynod.ai.serviceUrl` to `http://127.0.0.1:3847` if needed.
 
-### 4. Full desktop fork (optional)
+### 4. Full branded desktop app (optional, advanced)
 
-**macOS / Linux:**
+Requires **Node 22**, **Xcode** (App Store), and 30–90 minutes:
 
 ```bash
-npm run setup:fork
-cd vscode-fork && npm install && npm run compile
-./scripts/code.sh
+brew install node@22
+# Install Xcode from App Store, then:
+BUILD_VSCODE_FORK=1 npm run build:ide
+cd vscode-fork && ./scripts/code.sh --extensionDevelopmentPath=../extensions/rubynod-ai-ui
 ```
+
+Until then, use `npm run launch` (VS Code + Rubynod extension).
 
 **Windows (PowerShell):**
 

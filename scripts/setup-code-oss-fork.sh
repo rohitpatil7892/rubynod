@@ -3,7 +3,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FORK_DIR="${ROOT}/vscode-fork"
-VSCODE_TAG="${VSCODE_TAG:-1.99.0}"
+VSCODE_TAG="${VSCODE_TAG:-1.102.3}"
 
 if [[ -d "${FORK_DIR}/.git" ]]; then
   echo "Code-OSS fork already exists at ${FORK_DIR}"
@@ -16,13 +16,9 @@ cp "${ROOT}/product.json" "${FORK_DIR}/product.json"
 echo "Applied Rubynod product.json (includes updateUrl for GitHub auto-updates)"
 echo "  Update URLs: https://github.com/rohitpatil7892/rubynod (edit product.json if you fork elsewhere)"
 
-# Symlink built-in AI extension into vscode extensions folder
-EXT_SRC="${ROOT}/extensions/rubynod-ai-ui"
-EXT_DST="${FORK_DIR}/extensions/rubynod-ai-ui"
-if [[ ! -e "${EXT_DST}" ]]; then
-  ln -sf "${EXT_SRC}" "${EXT_DST}"
-  echo "Linked rubynod-ai-ui extension"
-fi
+# Do NOT symlink rubynod-ai-ui into vscode-fork/extensions (breaks compile).
+# Load at runtime: ./scripts/launch-rubynod.sh or code.sh --extensionDevelopmentPath=../extensions/rubynod-ai-ui
+echo "Rubynod AI extension: use ../scripts/launch-rubynod.sh (not symlinked into fork)"
 
 cat <<'EOF'
 

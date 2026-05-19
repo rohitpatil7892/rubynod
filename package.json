@@ -27,7 +27,9 @@
     "cli": "node packages/rubynod-cli/dist/cli.js",
     "version:sync": "node scripts/sync-version.mjs",
     "release:manifests": "node scripts/generate-update-manifest.mjs",
-    "package:ext": "npm run build -w rubynod-ai-ui && npx @vscode/vsce package extensions/rubynod-ai-ui --out dist/"
+    "package:ext": "npm run build -w rubynod-ai-ui && npx @vscode/vsce package extensions/rubynod-ai-ui --out dist/",
+    "build:ide": "bash scripts/build-ide.sh",
+    "launch": "bash scripts/launch-rubynod.sh"
   },
   "engines": {
     "node": ">=20"
