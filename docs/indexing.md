@@ -12,7 +12,7 @@ Rubynod indexes your workspace so the AI understands your codebase with local se
 | **LSP symbols** | Functions, classes, methods from the language server |
 | **File metadata** | Paths, mtimes, sizes |
 
-Respects `.gitignore`, `.rubynodignore`, and `.cursorignore`.
+Respects `.gitignore` and `.rubynodignore`.
 
 ## Storage
 

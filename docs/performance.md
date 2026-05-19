@@ -62,7 +62,7 @@ For monorepos >50k chunks, raise limits cautiously or split workspaces.
 
 ## Tips for large repos
 
-1. Add paths to `**.rubynodignore`** (same spirit as `.cursorignore`).
+1. Add paths to **`.rubynodignore`** to exclude large or generated folders from the index.
 2. Turn off `**autoIndexOnOpen**` and run manual index once.
 3. Lower `**maxAutoContextChunks**` / `**maxAutoContextChars**` for faster agent turns.
 4. Disable `**autoInjectContext**` if you only use explicit `@file` / `@folder`.

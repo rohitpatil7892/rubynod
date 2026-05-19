@@ -40,7 +40,7 @@ Rubynod = **Code-OSS shell** (fork scripts) + **Rubynod AI extension** + **local
 | @ symbol (workspace) | ✅ | `symbol:` mentions |
 | Thinking / tool UI in chat | ✅ | — |
 | File chips, drag-drop context | ✅ | — |
-| Rules (AGENTS.md, `.rubynod/rules`) | ✅ | Also reads `.cursor/rules` if present |
+| Rules (AGENTS.md, `.rubynod/rules`) | ✅ | Project rules under `.rubynod/rules/` |
 | Skills (SKILL.md) | ✅ | — |
 | MCP tools | ✅ | `~/.rubynod/mcp.json` |
 | YOLO / auto-approve | ✅ | Settings |

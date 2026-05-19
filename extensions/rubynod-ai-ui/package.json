@@ -3,7 +3,7 @@
   "displayName": "Rubynod AI",
   "description": "AI coding assistant for Rubynod and VS Code",
   "version": "0.1.0",
-  "publisher": "rubynod",
+  "publisher": "RohitPatil",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["AI", "Machine Learning"],
   "activationEvents": ["onStartupFinished"],
