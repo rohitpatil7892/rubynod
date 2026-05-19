@@ -14,3 +14,8 @@ if ! node -e "process.exit(0)" 2>/dev/null; then
   echo "Rubynod: Node failed to run. Fix with: brew install node@22 && export PATH=\"/opt/homebrew/opt/node@22/bin:\$PATH\""
   exit 1
 fi
+# When invoked as: bash scripts/ensure-node.sh npm run dev:ai
+# run the rest in this shell so PATH applies (subshell + && would lose it).
+if [[ $# -gt 0 ]]; then
+  exec "$@"
+fi
