@@ -96,6 +96,30 @@ Open the **Rubynod AI** icon in the activity bar → **Chat**. Choose **Agent** 
 
 ---
 
+## Installed from VS Code Marketplace?
+
+The extension is only the **UI**. It does **not** connect to Ollama by itself.
+
+| Piece | What it does | Port |
+|-------|----------------|------|
+| **Rubynod AI extension** | Chat, file tools, settings | — |
+| **Rubynod AI service** (from this repo) | Agent, indexing, tools | `3847` |
+| **Ollama** | LLM models | `11434` |
+
+**Flow:** Extension → `http://127.0.0.1:3847` → Ollama
+
+**One-time setup:**
+
+1. Clone this repo anywhere: `git clone https://github.com/rohitpatil7892/rubynod.git`
+2. `cd rubynod && npm install && npm run build`
+3. VS Code → Settings → `rubynod.ai.repoPath` → path to that clone  
+4. **Rubynod: Start AI Service** (only asks for the folder the first time)
+5. Keep **Ollama** running: `ollama serve`
+
+You can open **any** project in VS Code; the agent service does not have to be your workspace folder.
+
+---
+
 ## Architecture
 
 ```
@@ -186,12 +210,30 @@ npm run cli -- agent "Summarize this project" --workspace .
 
 ---
 
+## Duplicate extension error (`rubynod.chatView`)
+
+You see this when **two copies** of Rubynod AI are active, for example:
+
+- **VS Code Marketplace** (`RohitPatil.rubynod-ai-ui`) **and**
+- **Dev install** (`npm run launch` or `--extensionDevelopmentPath=...`)
+
+**Fix — use only one:**
+
+1. **Extensions** (`Cmd+Shift+X`) → search `Rubynod`
+2. If you see **two** entries, **Disable** or **Uninstall** one:
+   - Daily use from Marketplace → disable/uninstall the dev copy; do **not** use `npm run launch`
+   - Developing the repo → uninstall/disable **RohitPatil.rubynod-ai-ui** from Marketplace; use `npm run launch` or F5 on `extensions/rubynod-ai-ui`
+3. **Developer: Reload Window**
+
+---
+
 ## Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
 | **AI offline** in chat | Run `npm run start:ai` or **Rubynod: Start AI Service** |
 | **`fetch failed`** | AI service not running on port 3847 |
+| **`Cannot register multiple views` `rubynod.chatView`** | Two Rubynod extensions installed — disable one (see section above) |
 | **Agent won’t edit files** | Use **Agent** mode + a tool-capable model (e.g. `qwen2.5-coder`) |
 | **Empty file after write** | Update extension; ensure model sends full `contents` in `write_file` |
 | **Native module errors** | Use Node 22: `npm run rebuild:native` |

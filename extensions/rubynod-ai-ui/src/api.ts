@@ -27,8 +27,14 @@ export async function* streamAgent(opts: {
   threadId?: string;
   context?: ContextAttachment[];
   composerFiles?: string[];
+  /** Per-message model override (e.g. from chat model picker). */
+  model?: string;
+  /** Per-message provider override (ollama, openai, anthropic, openrouter). */
+  provider?: string;
 }): AsyncGenerator<{ type: string; data: unknown }> {
   const clientSettings = getClientSettings();
+  const model = opts.model?.trim() || clientSettings.model;
+  const provider = (opts.provider?.trim() || clientSettings.provider) as typeof clientSettings.provider;
   const apiKey = await getApiKey();
 
   const res = await fetch(`${getServiceUrl()}/agent/run`, {
@@ -42,8 +48,8 @@ export async function* streamAgent(opts: {
       mode: opts.mode,
       threadId: opts.threadId,
       workspaceRoot: getWorkspaceRoot(),
-      provider: clientSettings.provider,
-      model: clientSettings.model,
+      provider,
+      model,
       baseUrl: getBaseUrl(),
       apiKey,
       context: opts.context,
@@ -51,6 +57,8 @@ export async function* streamAgent(opts: {
       bridgeUrl: `http://127.0.0.1:${getBridgePort()}`,
       clientSettings: {
         ...clientSettings,
+        provider,
+        model,
         mcpEnabled: isMcpEnabled(),
         apiKey,
       },

@@ -1,7 +1,7 @@
 {
   "nameShort": "Rubynod",
   "nameLong": "Rubynod",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "applicationName": "rubynod",
   "dataFolderName": ".rubynod",
   "win32MutexName": "rubynod",
@@ -11,7 +11,9 @@
   "updateUrl": "https://raw.githubusercontent.com/rohitpatil7892/rubynod/main/updates",
   "downloadUrl": "https://github.com/rohitpatil7892/rubynod/releases",
   "urlProtocol": "rubynod",
-  "extensionAllowedProposedApi": ["rubynod.rubynod-ai-ui"],
+  "extensionAllowedProposedApi": [
+    "rubynod.rubynod-ai-ui"
+  ],
   "builtInExtensions": [
     {
       "name": "rubynod-ai-ui",
@@ -25,7 +27,9 @@
       }
     }
   ],
-  "linkProtectionTrustedDomains": ["https://rubynod.dev"],
+  "linkProtectionTrustedDomains": [
+    "https://rubynod.dev"
+  ],
   "extensionsGallery": {
     "serviceUrl": "https://open-vsx.org/vscode/gallery",
     "itemUrl": "https://open-vsx.org/vscode/item",
@@ -35,7 +39,11 @@
   "darwinExecutable": "Rubynod",
   "linuxIconName": "rubynod",
   "linuxExecutable": "rubynod",
-  "supportedPlatforms": ["darwin", "win32", "linux"],
+  "supportedPlatforms": [
+    "darwin",
+    "win32",
+    "linux"
+  ],
   "win32AppUserModelId": "Rubynod.Rubynod",
   "win32DirName": "Rubynod",
   "win32NameVersion": "Rubynod",

@@ -1,6 +1,15 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
-import { getDefaultChatMode, isIncludeActiveFile, isIncludeOpenFiles, getMaxContextAttachments } from './settings';
+import {
+  getDefaultChatMode,
+  isIncludeActiveFile,
+  isIncludeOpenFiles,
+  getMaxContextAttachments,
+  getProvider,
+  getModel,
+  getOllamaHost,
+  getServiceUrl,
+} from './settings';
 import { createIdeBridge } from './bridge';
 import { pickContext, type ContextAttachment } from './context';
 import { streamAgent, cancelAgent, type AgentMode } from './api';
@@ -20,6 +29,12 @@ import { resolveAtQuery } from './context-resolver';
 import { getWorkspaceRoot } from './settings';
 import { ChatHistory, type ChatHistoryEntry } from './chat-history';
 import { isSimpleGreeting } from './greeting';
+import {
+  CHAT_PROVIDERS,
+  cloudModelsForProvider,
+  defaultBaseUrlForProvider,
+  type ChatProviderId,
+} from './model-catalog';
 
 let toolIdCounter = 0;
 
@@ -61,14 +76,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'pendingDiffs', count: getPendingDiffs().length });
   }
 
-  private restoreHistory(): void {
+  private postSessionState(): void {
     const entries = this.history.getEntries();
-    if (!entries.length) return;
+    this.threadId = this.history.getThreadId();
     this.post({
-      type: 'hydrate',
-      entries,
-      threadId: this.history.getThreadId(),
+      type: 'sessions',
+      sessions: this.history.listSessions(),
+      activeId: this.history.getActiveSessionId(),
     });
+    if (entries.length) {
+      this.post({ type: 'hydrate', entries, threadId: this.threadId });
+    } else {
+      this.post({ type: 'clear' });
+    }
+  }
+
+  private restoreHistory(): void {
+    this.postSessionState();
   }
 
   resolveWebviewView(
@@ -85,6 +109,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.refreshPendingDiffs();
     this.restoreHistory();
     void this.refreshAiStatus();
+    void this.refreshChatModels();
     if (this.healthTimer) clearInterval(this.healthTimer);
     this.healthTimer = setInterval(() => void this.refreshAiStatus(), 8000);
     webviewView.onDidDispose(() => {
@@ -99,12 +124,84 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'aiStatus', online: false, checking: true });
     const online = await isAiServiceHealthy();
     this.post({ type: 'aiStatus', online, checking: false });
+    if (online) void this.refreshChatModels();
+  }
+
+  private async refreshChatModels(requestedProvider?: string): Promise<void> {
+    const provider = (requestedProvider || getProvider()) as ChatProviderId;
+    const current = getModel();
+    let models: string[] = [];
+    let picked = current;
+
+    if (provider === 'ollama') {
+      const host = getOllamaHost();
+      try {
+        const res = await fetch(
+          `${getServiceUrl()}/ollama/models?host=${encodeURIComponent(host)}`
+        );
+        const json = (await res.json()) as {
+          models?: Array<{ name: string }>;
+          suggested?: string;
+        };
+        models = (json.models ?? []).map((m) => m.name);
+        picked = models.includes(current)
+          ? current
+          : (json.suggested ?? models[0] ?? current);
+      } catch {
+        models = current ? [current] : [];
+        picked = current;
+      }
+    } else {
+      models = cloudModelsForProvider(provider, current);
+      picked = models.includes(current) ? current : (models[0] ?? current);
+    }
+
+    this.post({
+      type: 'chatModels',
+      provider,
+      providers: CHAT_PROVIDERS,
+      models,
+      current: picked,
+      showPicker: models.length > 0,
+    });
   }
 
   async clearHistory(): Promise<void> {
     this.threadId = undefined;
+    this.targetFiles = [];
     await this.history.clear();
-    this.post({ type: 'clear' });
+    this.refreshTargets();
+    this.postSessionState();
+  }
+
+  async startNewChat(): Promise<void> {
+    if (this.running) return;
+    this.threadId = undefined;
+    this.targetFiles = [];
+    this.turnAssistantText = '';
+    await this.history.newSession();
+    this.refreshTargets();
+    this.postSessionState();
+  }
+
+  private async switchToSession(id: string): Promise<void> {
+    if (this.running) return;
+    const session = await this.history.switchSession(id);
+    if (!session) return;
+    this.threadId = session.threadId;
+    this.targetFiles = [];
+    this.turnAssistantText = '';
+    this.refreshTargets();
+    this.postSessionState();
+  }
+
+  private async removeSession(id: string): Promise<void> {
+    if (this.running) return;
+    const activeId = await this.history.deleteSession(id);
+    if (!activeId) return;
+    this.threadId = this.history.getThreadId();
+    this.targetFiles = [];
+    this.postSessionState();
   }
 
   private post(msg: unknown) {
@@ -115,15 +212,51 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     type: string;
     text?: string;
     mode?: AgentMode;
+    model?: string;
+    provider?: string;
     label?: string;
     path?: string;
     startLine?: number;
     query?: string;
     paths?: string[];
     file?: string;
+    sessionId?: string;
   }) {
+    if (msg.type === 'listSessions') {
+      this.post({ type: 'sessions', sessions: this.history.listSessions(), activeId: this.history.getActiveSessionId() });
+      return;
+    }
+    if (msg.type === 'newChat') {
+      await this.startNewChat();
+      return;
+    }
+    if (msg.type === 'selectSession' && msg.sessionId) {
+      await this.switchToSession(msg.sessionId);
+      return;
+    }
+    if (msg.type === 'deleteSession' && msg.sessionId) {
+      await this.removeSession(msg.sessionId);
+      return;
+    }
     if (msg.type === 'startAiService') {
       void startAiService().then(() => setTimeout(() => void this.refreshAiStatus(), 2500));
+      return;
+    }
+    if (msg.type === 'listModels') {
+      void this.refreshChatModels(msg.provider);
+      return;
+    }
+    if (msg.type === 'setModel' && msg.model) {
+      const cfg = vscode.workspace.getConfiguration('rubynod');
+      const provider = (msg.provider || getProvider()) as ChatProviderId;
+      await cfg.update('models.provider', provider, vscode.ConfigurationTarget.Global);
+      await cfg.update('models.chatModel', msg.model, vscode.ConfigurationTarget.Global);
+      await cfg.update(
+        'models.baseUrl',
+        defaultBaseUrlForProvider(provider),
+        vscode.ConfigurationTarget.Global
+      );
+      void this.refreshChatModels(provider);
       return;
     }
     if (msg.type === 'addContext') {
@@ -216,7 +349,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
     if (msg.type === 'send' && msg.text) {
       this.mode = msg.mode ?? 'agent';
-      await this.run(msg.text);
+      await this.run(msg.text, msg.model, msg.provider);
     }
   }
 
@@ -248,7 +381,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.history.append(entry);
   }
 
-  async run(text: string) {
+  async run(text: string, modelOverride?: string, providerOverride?: string) {
     if (this.running) return;
     this.running = true;
     this.activeTools.clear();
@@ -315,6 +448,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         threadId: this.threadId,
         context: contextItems,
         composerFiles,
+        model: modelOverride,
+        provider: providerOverride,
       })) {
         if (event.type === 'text') {
           const d = event.data as { text: string; threadId?: string };
@@ -414,6 +549,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.running = false;
       clearContext();
       this.post({ type: 'chips', items: [] });
+      this.post({
+        type: 'sessions',
+        sessions: this.history.listSessions(),
+        activeId: this.history.getActiveSessionId(),
+      });
       void this.refreshAiStatus();
     }
   }

@@ -2,11 +2,18 @@
   "name": "rubynod-ai-ui",
   "displayName": "Rubynod AI",
   "description": "AI coding assistant for Rubynod and VS Code",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "publisher": "RohitPatil",
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["AI", "Machine Learning"],
-  "activationEvents": ["onStartupFinished"],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Machine Learning"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
@@ -20,28 +27,90 @@
     },
     "views": {
       "rubynod-ai": [
-        { "type": "webview", "id": "rubynod.chatView", "name": "Chat" }
+        {
+          "type": "webview",
+          "id": "rubynod.chatView",
+          "name": "Chat"
+        }
       ]
     },
     "commands": [
-      { "command": "rubynod.startAiService", "title": "Rubynod: Start AI Service" },
-      { "command": "rubynod.clearChat", "title": "Rubynod: Clear Chat History" },
-      { "command": "rubynod.openChat", "title": "Rubynod: Open Chat" },
-      { "command": "rubynod.openComposer", "title": "Rubynod: Open Chat (Composer)" },
-      { "command": "rubynod.openSettings", "title": "Rubynod: Open Settings" },
-      { "command": "rubynod.inlineEdit", "title": "Rubynod: Inline Edit" },
-      { "command": "rubynod.addFileToChat", "title": "Rubynod: Add File to Chat" },
-      { "command": "rubynod.addToChat", "title": "Rubynod: Add to Chat" },
-      { "command": "rubynod.addSelectionToChat", "title": "Rubynod: Add Selection to Chat" },
-      { "command": "rubynod.addFolderToChat", "title": "Rubynod: Add Folder to Chat" },
-      { "command": "rubynod.buildIndex", "title": "Rubynod: Build Codebase Index" },
-      { "command": "rubynod.addMemory", "title": "Rubynod: Add Memory" },
-      { "command": "rubynod.openGapAnalysis", "title": "Rubynod: Feature Gap Analysis" },
-      { "command": "rubynod.checkForUpdates", "title": "Rubynod: Check for Updates" },
-      { "command": "rubynod.selectOllamaModel", "title": "Rubynod: Select Ollama Model" },
-      { "command": "rubynod.acceptDiff", "title": "Rubynod: Accept Diff" },
-      { "command": "rubynod.rejectDiff", "title": "Rubynod: Reject Diff" },
-      { "command": "rubynod.undoCheckpoint", "title": "Rubynod: Undo Last Checkpoint" }
+      {
+        "command": "rubynod.startAiService",
+        "title": "Rubynod: Start AI Service"
+      },
+      {
+        "command": "rubynod.clearChat",
+        "title": "Rubynod: Clear Chat History"
+      },
+      {
+        "command": "rubynod.newChat",
+        "title": "Rubynod: New Chat"
+      },
+      {
+        "command": "rubynod.openChat",
+        "title": "Rubynod: Open Chat"
+      },
+      {
+        "command": "rubynod.openComposer",
+        "title": "Rubynod: Open Chat (Composer)"
+      },
+      {
+        "command": "rubynod.openSettings",
+        "title": "Rubynod: Open Settings"
+      },
+      {
+        "command": "rubynod.inlineEdit",
+        "title": "Rubynod: Inline Edit"
+      },
+      {
+        "command": "rubynod.addFileToChat",
+        "title": "Rubynod: Add File to Chat"
+      },
+      {
+        "command": "rubynod.addToChat",
+        "title": "Rubynod: Add to Chat"
+      },
+      {
+        "command": "rubynod.addSelectionToChat",
+        "title": "Rubynod: Add Selection to Chat"
+      },
+      {
+        "command": "rubynod.addFolderToChat",
+        "title": "Rubynod: Add Folder to Chat"
+      },
+      {
+        "command": "rubynod.buildIndex",
+        "title": "Rubynod: Build Codebase Index"
+      },
+      {
+        "command": "rubynod.addMemory",
+        "title": "Rubynod: Add Memory"
+      },
+      {
+        "command": "rubynod.openGapAnalysis",
+        "title": "Rubynod: Feature Gap Analysis"
+      },
+      {
+        "command": "rubynod.checkForUpdates",
+        "title": "Rubynod: Check for Updates"
+      },
+      {
+        "command": "rubynod.selectOllamaModel",
+        "title": "Rubynod: Select Ollama Model"
+      },
+      {
+        "command": "rubynod.acceptDiff",
+        "title": "Rubynod: Accept Diff"
+      },
+      {
+        "command": "rubynod.rejectDiff",
+        "title": "Rubynod: Reject Diff"
+      },
+      {
+        "command": "rubynod.undoCheckpoint",
+        "title": "Rubynod: Undo Last Checkpoint"
+      }
     ],
     "menus": {
       "explorer/context": [
@@ -99,13 +168,17 @@
         "rubynod.ai.repoPath": {
           "type": "string",
           "default": "",
-          "description": "Path to your rubynod git clone (for Start AI Service). Auto-detected when the workspace is the rubynod repo.",
+          "markdownDescription": "Path to your [Rubynod](https://github.com/rohitpatil7892/rubynod) git clone (required once for **Start AI Service**). The VS Code extension is not enough by itself — it needs the local agent on port **3847**, which then calls **Ollama**. Auto-detected if that folder is open in the workspace.",
           "order": 2
         },
-
         "rubynod.models.provider": {
           "type": "string",
-          "enum": ["openai", "anthropic", "ollama", "openrouter"],
+          "enum": [
+            "openai",
+            "anthropic",
+            "ollama",
+            "openrouter"
+          ],
           "default": "ollama",
           "description": "LLM provider (default: local Ollama).",
           "order": 10
@@ -168,10 +241,14 @@
           "description": "Max tokens per model response.",
           "order": 17
         },
-
         "rubynod.chat.defaultMode": {
           "type": "string",
-          "enum": ["agent", "plan", "ask", "debug"],
+          "enum": [
+            "agent",
+            "plan",
+            "ask",
+            "debug"
+          ],
           "default": "agent",
           "enumDescriptions": [
             "Full agent: read/write files and terminal.",
@@ -206,7 +283,6 @@
           "description": "Max @-attachments per message.",
           "order": 24
         },
-
         "rubynod.tab.enabled": {
           "type": "boolean",
           "default": true,
@@ -227,14 +303,12 @@
           "description": "Override model for Tab only. Empty = rubynod.models.tabModel.",
           "order": 32
         },
-
         "rubynod.inline.model": {
           "type": "string",
           "default": "",
           "description": "Override model for Cmd+K inline edit.",
           "order": 35
         },
-
         "rubynod.agent.autoApproveTerminal": {
           "type": "boolean",
           "default": false,
@@ -261,7 +335,6 @@
           "description": "Max tool-call loops per agent request.",
           "order": 43
         },
-
         "rubynod.index.autoIndexOnOpen": {
           "type": "boolean",
           "default": true,
@@ -292,7 +365,6 @@
           "description": "Max characters of auto-injected index context.",
           "order": 54
         },
-
         "rubynod.performance.indexSaveDebounceMs": {
           "type": "number",
           "default": 800,
@@ -341,14 +413,12 @@
           "description": "Max files included when attaching a folder.",
           "order": 60
         },
-
         "rubynod.tools.webSearch": {
           "type": "boolean",
           "default": false,
           "markdownDescription": "Enable **web_search** agent tool (DuckDuckGo). Requires network.",
           "order": 65
         },
-
         "rubynod.update.enabled": {
           "type": "boolean",
           "default": true,
@@ -369,7 +439,6 @@
           "description": "How often to check for updates (hours).",
           "order": 68
         },
-
         "rubynod.privacy.privacyMode": {
           "type": "boolean",
           "default": false,
@@ -388,14 +457,12 @@
           "description": "Send anonymous usage telemetry (opt-in).",
           "order": 62
         },
-
         "rubynod.mcp.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Enable MCP tool servers from ~/.rubynod/mcp.json.",
           "order": 70
         },
-
         "rubynod.ai.provider": {
           "type": "string",
           "deprecationMessage": "Use rubynod.models.provider instead.",

@@ -22,7 +22,30 @@ let indexService: IndexService;
 let updateChecker: UpdateChecker;
 let ollamaConnect: OllamaConnect;
 
+function findDuplicateRubynodExtensions(selfId: string): string[] {
+  return vscode.extensions.all
+    .filter((ext) => {
+      if (ext.id === selfId) return false;
+      const views = ext.packageJSON?.contributes?.views as
+        | Record<string, Array<{ id?: string }>>
+        | undefined;
+      if (!views?.['rubynod-ai']) return false;
+      return views['rubynod-ai'].some((v) => v.id === 'rubynod.chatView');
+    })
+    .map((ext) => ext.id);
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  const duplicates = findDuplicateRubynodExtensions(context.extension.id);
+  if (duplicates.length > 0) {
+    const list = duplicates.join(', ');
+    void vscode.window.showErrorMessage(
+      `Rubynod AI is loaded twice (${list} and ${context.extension.id}). ` +
+        'Disable or uninstall one copy in Extensions — usually Marketplace vs "extensionDevelopmentPath".'
+    );
+    return;
+  }
+
   attachTerminalListener();
 
   const bridgePort = await startBridgeServer();
@@ -39,14 +62,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   if (!(await isAiServiceHealthy())) {
     void vscode.window.showInformationMessage(
-      'Rubynod: start the AI agent service before chatting (Cmd+Shift+P → Rubynod: Start AI Service).'
+      'Rubynod: start the local AI agent (not just Ollama). Cmd+Shift+P → Rubynod: Start AI Service — requires a one-time rubynod repo clone.'
     );
   }
 
   chatProvider = new ChatViewProvider(context.extensionUri, context);
   setChatProviderRef(chatProvider);
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chatProvider)
+    vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chatProvider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    })
   );
 
   registerTabAutocomplete(context);
@@ -81,10 +106,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.commands.registerCommand('rubynod.startAiService', () => startAiService()),
     vscode.commands.registerCommand('rubynod.openSettings', () => {
-      vscode.commands.executeCommand('workbench.action.openSettings', '@ext:rubynod.rubynod-ai-ui');
+      vscode.commands.executeCommand(
+        'workbench.action.openSettings',
+        `@ext:${context.extension.id}`
+      );
     }),
     vscode.commands.registerCommand('rubynod.openChat', () => {
       vscode.commands.executeCommand('rubynod.chatView.focus');
+    }),
+    vscode.commands.registerCommand('rubynod.newChat', async () => {
+      await getChatProviderRef()?.startNewChat();
     }),
     vscode.commands.registerCommand('rubynod.clearChat', async () => {
       const ok = await vscode.window.showWarningMessage(

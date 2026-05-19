@@ -31,6 +31,158 @@ export function getChatHtml(defaultMode: string): string {
     overflow: hidden;
   }
 
+  /* —— Header (history + new chat) —— */
+  .chat-header {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--rn-border);
+    background: var(--rn-surface);
+    min-width: 0;
+  }
+  .chat-header-main {
+    flex: 1;
+    min-width: 0;
+  }
+  .session-title {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--rn-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chat-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .header-icon-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: var(--rn-radius-sm);
+    background: transparent;
+    color: var(--rn-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s;
+  }
+  .header-icon-btn:hover,
+  .header-icon-btn.active {
+    background: var(--rn-accent-soft);
+    color: var(--rn-text);
+  }
+  .header-icon-btn svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+  }
+  .history-panel {
+    position: absolute;
+    top: 44px;
+    left: 8px;
+    right: 8px;
+    z-index: 100;
+    max-height: min(420px, 55vh);
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--rn-border);
+    border-radius: var(--rn-radius);
+    background: var(--rn-surface-2);
+    box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+  }
+  .history-panel.hidden { display: none; }
+  .history-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--rn-border);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--rn-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .history-list {
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+  .history-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+    border: none;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    color: var(--rn-text);
+    font-family: inherit;
+    font-size: 12px;
+  }
+  .history-item:hover { background: var(--rn-accent-soft); }
+  .history-item.active {
+    background: var(--vscode-list-activeSelectionBackground, var(--rn-accent-soft));
+  }
+  .history-item-body { flex: 1; min-width: 0; }
+  .history-item-title {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .history-item-meta {
+    font-size: 10px;
+    color: var(--rn-muted);
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .history-item-delete {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--rn-muted);
+    cursor: pointer;
+    opacity: 0;
+    font-size: 14px;
+    line-height: 1;
+  }
+  .history-item:hover .history-item-delete { opacity: 1; }
+  .history-item-delete:hover {
+    background: color-mix(in srgb, #f87171 20%, transparent);
+    color: #f87171;
+  }
+  .history-empty {
+    padding: 24px 16px;
+    text-align: center;
+    color: var(--rn-muted);
+    font-size: 12px;
+  }
+  .chat-shell {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
   /* —— Chips (above composer input) —— */
   #chips {
     display: flex; flex-wrap: wrap; gap: 6px;
@@ -311,6 +463,7 @@ export function getChatHtml(defaultMode: string): string {
   /* —— Composer (bottom: mode, @, stop, send) —— */
   .composer {
     flex-shrink: 0;
+    min-width: 0;
     padding: 8px 12px 10px;
     background: var(--rn-surface-2);
     border-top: 1px solid var(--rn-border);
@@ -373,7 +526,7 @@ export function getChatHtml(defaultMode: string): string {
     border: 1px solid var(--rn-border);
     border-radius: var(--rn-radius);
     background: var(--rn-surface);
-    overflow: hidden;
+    overflow: visible;
     transition: border-color 0.15s, box-shadow 0.15s;
   }
   .composer-box:focus-within {
@@ -395,20 +548,71 @@ export function getChatHtml(defaultMode: string): string {
     opacity: 1;
   }
   .composer-toolbar {
-    display: flex; align-items: center; gap: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     padding: 6px 8px 8px;
     border-top: 1px solid var(--rn-border);
     background: color-mix(in srgb, var(--rn-surface-2) 40%, var(--rn-surface));
+    min-width: 0;
+  }
+  .toolbar-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    width: 100%;
+  }
+  .toolbar-row-models {
+    flex-wrap: wrap;
+  }
+  .toolbar-row-actions {
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
+  .toolbar-scroll {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    padding-bottom: 1px;
+  }
+  .toolbar-scroll::-webkit-scrollbar { height: 4px; }
+  .toolbar-end {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    margin-left: auto;
   }
   .mode-select {
     font-size: 11px; font-weight: 500;
-    padding: 5px 8px; border-radius: var(--rn-radius-sm);
+    padding: 5px 6px; border-radius: var(--rn-radius-sm);
     border: 1px solid var(--rn-border);
     background: var(--rn-surface);
     color: var(--rn-text); cursor: pointer;
     outline: none;
+    flex-shrink: 0;
+    min-width: 0;
+    max-width: 100%;
   }
   .mode-select:hover { border-color: var(--rn-accent); }
+  .toolbar-row-models .mode-select { flex: 1 1 56px; }
+  .model-select {
+    flex: 2 1 72px;
+    min-width: 0;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .provider-select {
+    flex: 1 1 64px;
+    max-width: 96px;
+  }
   .icon-btn {
     width: 28px; height: 28px; border-radius: var(--rn-radius-sm);
     border: 1px solid var(--rn-border);
@@ -423,10 +627,10 @@ export function getChatHtml(defaultMode: string): string {
   .icon-btn.danger { color: #f87171; border-color: color-mix(in srgb, #f87171 40%, var(--rn-border)); }
   .icon-btn.danger:hover { background: color-mix(in srgb, #f87171 15%, transparent); border-color: #f87171; }
   .icon-btn.hidden { display: none; }
-  .toolbar-spacer { flex: 1; min-width: 4px; }
   #send-btn {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 8px 16px; border-radius: var(--rn-radius-sm);
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 6px 12px; border-radius: var(--rn-radius-sm);
+    flex-shrink: 0;
     border: none; cursor: pointer;
     background: var(--vscode-button-background, var(--rn-accent));
     color: var(--vscode-button-foreground, #fff);
@@ -446,9 +650,31 @@ export function getChatHtml(defaultMode: string): string {
 </style>
 </head>
 <body>
-  <div id="thread">
+  <header class="chat-header">
+    <div class="chat-header-main">
+      <span id="session-title" class="session-title">New Chat</span>
+    </div>
+    <div class="chat-header-actions">
+      <button type="button" id="history-btn" class="header-icon-btn" title="Chat history" aria-label="Chat history">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8zm7.5-.5v4l3.25 1.9.75-1.28L9.5 9.27V7.5H7.5z"/></svg>
+      </button>
+      <button type="button" id="new-chat-btn" class="header-icon-btn" title="New chat" aria-label="New chat">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5a.75.75 0 0 1 .75.75V7h3.75a.75.75 0 0 1 0 1.5H8.75v3.75a.75.75 0 0 1-1.5 0V8.5H3.5a.75.75 0 0 1 0-1.5h3.75V3.25A.75.75 0 0 1 8 2.5z"/></svg>
+      </button>
+    </div>
+  </header>
+  <div class="chat-shell">
+    <div id="history-panel" class="history-panel hidden" role="dialog" aria-label="Chat history">
+      <div class="history-panel-head">
+        <span>Previous chats</span>
+        <button type="button" id="history-close" class="header-icon-btn" title="Close" aria-label="Close">×</button>
+      </div>
+      <div id="history-list" class="history-list"></div>
+    </div>
+    <div id="thread">
     <div class="empty-state" id="empty">
       <h2>What can I help you build?</h2>
+    </div>
     </div>
   </div>
   <div class="composer">
@@ -467,20 +693,33 @@ export function getChatHtml(defaultMode: string): string {
         <textarea id="input" rows="2" placeholder="Ask Rubynod… (@ files · Enter send · Shift+Enter new line)"></textarea>
       </div>
       <div class="composer-toolbar">
-        <select id="mode" class="mode-select" title="Mode">
-          <option value="agent"${defaultMode === 'agent' ? ' selected' : ''}>Agent</option>
-          <option value="plan"${defaultMode === 'plan' ? ' selected' : ''}>Plan</option>
-          <option value="ask"${defaultMode === 'ask' ? ' selected' : ''}>Ask</option>
-          <option value="debug"${defaultMode === 'debug' ? ' selected' : ''}>Debug</option>
-        </select>
-        <button type="button" class="icon-btn" id="ctx-btn" title="Add context (@)">@</button>
-        <button type="button" class="toolbar-text-btn" id="tabs-btn" title="Add open editor tabs as edit targets">Tabs</button>
-        <button type="button" class="toolbar-text-btn" id="checkpoint-btn" title="Save checkpoint">Save</button>
-        <button type="button" class="toolbar-text-btn hidden" id="accept-all-btn" title="Accept all pending diffs">Accept</button>
-        <button type="button" class="toolbar-text-btn hidden" id="reject-all-btn" title="Reject all pending diffs">Reject</button>
-        <span class="toolbar-spacer"></span>
-        <button type="button" class="icon-btn danger hidden" id="stop-btn" title="Stop generation">■</button>
-        <button type="button" id="send-btn">Send ↑</button>
+        <div class="toolbar-row toolbar-row-models">
+          <select id="mode" class="mode-select" title="Mode">
+            <option value="agent"${defaultMode === 'agent' ? ' selected' : ''}>Agent</option>
+            <option value="plan"${defaultMode === 'plan' ? ' selected' : ''}>Plan</option>
+            <option value="ask"${defaultMode === 'ask' ? ' selected' : ''}>Ask</option>
+            <option value="debug"${defaultMode === 'debug' ? ' selected' : ''}>Debug</option>
+          </select>
+          <select id="provider" class="mode-select provider-select" title="Provider">
+            <option value="ollama">Ollama</option>
+          </select>
+          <select id="model" class="mode-select model-select" title="Model for this message">
+            <option value="">Model…</option>
+          </select>
+        </div>
+        <div class="toolbar-row toolbar-row-actions">
+          <div class="toolbar-scroll">
+            <button type="button" class="icon-btn" id="ctx-btn" title="Add context (@)">@</button>
+            <button type="button" class="toolbar-text-btn" id="tabs-btn" title="Add open editor tabs">Tabs</button>
+            <button type="button" class="toolbar-text-btn" id="checkpoint-btn" title="Save checkpoint">Save</button>
+            <button type="button" class="toolbar-text-btn hidden" id="accept-all-btn" title="Accept all">Accept</button>
+            <button type="button" class="toolbar-text-btn hidden" id="reject-all-btn" title="Reject all">Reject</button>
+          </div>
+          <div class="toolbar-end">
+            <button type="button" class="icon-btn danger hidden" id="stop-btn" title="Stop">■</button>
+            <button type="button" id="send-btn">Send</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -500,6 +739,162 @@ export function getChatHtml(defaultMode: string): string {
   const acceptAllBtn = document.getElementById('accept-all-btn');
   const rejectAllBtn = document.getElementById('reject-all-btn');
   const aiStatusBtn = document.getElementById('ai-status');
+  const modelSelect = document.getElementById('model');
+  const providerSelect = document.getElementById('provider');
+  const sessionTitleEl = document.getElementById('session-title');
+  const historyBtn = document.getElementById('history-btn');
+  const newChatBtn = document.getElementById('new-chat-btn');
+  const historyPanel = document.getElementById('history-panel');
+  const historyList = document.getElementById('history-list');
+  const historyClose = document.getElementById('history-close');
+  let chatSessions = [];
+
+  function formatSessionTime(ts) {
+    const d = new Date(ts);
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (sameDay) return 'Today · ' + time;
+    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday · ' + time;
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' · ' + time;
+  }
+
+  function setSessionTitle(title) {
+    if (sessionTitleEl) sessionTitleEl.textContent = title || 'New Chat';
+  }
+
+  function renderSessions(sessions, activeId) {
+    chatSessions = sessions || [];
+    const active = chatSessions.find(s => s.id === activeId) || chatSessions.find(s => s.active);
+    setSessionTitle(active ? active.title : 'New Chat');
+    if (!historyList) return;
+    if (!chatSessions.length) {
+      historyList.innerHTML = '<div class="history-empty">No previous chats yet</div>';
+      return;
+    }
+    historyList.innerHTML = chatSessions.map(s => {
+      const meta = (s.preview && s.preview !== s.title ? s.preview : '') || formatSessionTime(s.updatedAt);
+      return '<div class="history-item' + (s.id === activeId || s.active ? ' active' : '') + '" data-id="' + escapeHtml(s.id) + '">' +
+        '<div class="history-item-body">' +
+        '<div class="history-item-title">' + escapeHtml(s.title || 'New Chat') + '</div>' +
+        '<div class="history-item-meta">' + escapeHtml(meta) + '</div>' +
+        '</div>' +
+        '<button type="button" class="history-item-delete" data-id="' + escapeHtml(s.id) + '" title="Delete chat" aria-label="Delete">×</button>' +
+        '</div>';
+    }).join('');
+    historyList.querySelectorAll('.history-item').forEach(row => {
+      row.onclick = (e) => {
+        if (e.target.classList.contains('history-item-delete')) return;
+        const id = row.dataset.id;
+        if (!id) return;
+        closeHistoryPanel();
+        vscode.postMessage({ type: 'selectSession', sessionId: id });
+      };
+    });
+    historyList.querySelectorAll('.history-item-delete').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.id;
+        if (!id) return;
+        vscode.postMessage({ type: 'deleteSession', sessionId: id });
+      };
+    });
+  }
+
+  function openHistoryPanel() {
+    if (!historyPanel) return;
+    historyPanel.classList.remove('hidden');
+    historyBtn && historyBtn.classList.add('active');
+    vscode.postMessage({ type: 'listSessions' });
+  }
+
+  function closeHistoryPanel() {
+    if (!historyPanel) return;
+    historyPanel.classList.add('hidden');
+    historyBtn && historyBtn.classList.remove('active');
+  }
+
+  function toggleHistoryPanel() {
+    if (historyPanel && !historyPanel.classList.contains('hidden')) closeHistoryPanel();
+    else openHistoryPanel();
+  }
+
+  if (historyBtn) historyBtn.onclick = toggleHistoryPanel;
+  if (historyClose) historyClose.onclick = closeHistoryPanel;
+  if (newChatBtn) newChatBtn.onclick = () => {
+    closeHistoryPanel();
+    vscode.postMessage({ type: 'newChat' });
+  };
+  document.addEventListener('click', (e) => {
+    if (!historyPanel || historyPanel.classList.contains('hidden')) return;
+    const t = e.target;
+    if (historyPanel.contains(t) || (historyBtn && historyBtn.contains(t))) return;
+    closeHistoryPanel();
+  });
+
+  function fillChatModels(data) {
+    const models = data.models || [];
+    const current = data.current || '';
+    const provider = data.provider || 'ollama';
+    const showPicker = data.showPicker !== false && models.length > 0;
+    const saved = vscode.getState() || {};
+
+    if (providerSelect && data.providers && data.providers.length) {
+      providerSelect.innerHTML = '';
+      data.providers.forEach(function(p) {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.label;
+        if (p.id === (saved.lastProvider || provider)) opt.selected = true;
+        providerSelect.appendChild(opt);
+      });
+      providerSelect.style.display = '';
+    }
+
+    if (!modelSelect) return;
+    const pickModel =
+      saved.lastProvider === provider && saved.lastModel && models.indexOf(saved.lastModel) >= 0
+        ? saved.lastModel
+        : current;
+    modelSelect.innerHTML = '';
+    if (!showPicker) {
+      modelSelect.style.display = 'none';
+      return;
+    }
+    modelSelect.style.display = '';
+    models.forEach(function(name) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      if (name === pickModel) opt.selected = true;
+      modelSelect.appendChild(opt);
+    });
+  }
+
+  function syncModelChoice() {
+    const m = modelSelect && modelSelect.value;
+    const p = providerSelect && providerSelect.value;
+    if (!m || !p) return;
+    const prev = vscode.getState() || {};
+    vscode.setState({ ...prev, lastModel: m, lastProvider: p });
+    vscode.postMessage({ type: 'setModel', model: m, provider: p });
+  }
+
+  if (providerSelect) {
+    providerSelect.addEventListener('change', function() {
+      const p = providerSelect.value;
+      const prev = vscode.getState() || {};
+      vscode.setState({ ...prev, lastProvider: p });
+      vscode.postMessage({ type: 'listModels', provider: p });
+    });
+  }
+  if (modelSelect) {
+    modelSelect.addEventListener('change', syncModelChoice);
+  }
+
+  vscode.postMessage({ type: 'listModels' });
 
   function setAiStatus(online, checking) {
     if (!aiStatusBtn) return;
@@ -988,11 +1383,13 @@ export function getChatHtml(defaultMode: string): string {
     if (state.running) return;
     hideMentions();
     const mode = document.getElementById('mode').value;
+    const model = modelSelect && modelSelect.value ? modelSelect.value : undefined;
+    const provider = providerSelect && providerSelect.value ? providerSelect.value : undefined;
     appendUser(text);
     input.value = '';
     input.style.height = 'auto';
     setStatus('Sending…', true);
-    vscode.postMessage({ type: 'send', text, mode });
+    vscode.postMessage({ type: 'send', text, mode, model, provider });
   }
 
   document.getElementById('send-btn').onclick = send;
@@ -1046,6 +1443,10 @@ export function getChatHtml(defaultMode: string): string {
         break;
       case 'aiStatus':
         setAiStatus(!!m.online, !!m.checking);
+        if (m.online) vscode.postMessage({ type: 'listModels' });
+        break;
+      case 'chatModels':
+        fillChatModels(m);
         break;
       case 'pendingDiffs':
         setPendingDiffs(m.count || 0);
@@ -1081,11 +1482,15 @@ export function getChatHtml(defaultMode: string): string {
           };
         });
         break;
+      case 'sessions':
+        renderSessions(m.sessions || [], m.activeId);
+        break;
       case 'hydrate':
         hydrateHistory(m.entries || []);
         break;
       case 'clear':
         thread.innerHTML = '<div class="empty-state" id="empty"><h2>What can I help you build?</h2></div>';
+        setSessionTitle('New Chat');
         state = { running: false, assistantEl: null, assistantMarkdown: '', activityPanel: null, activitySteps: {}, toolCards: {}, toolArgs: {} };
         sendBtn.disabled = false;
         stopBtn.classList.add('hidden');
