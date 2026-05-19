@@ -58,8 +58,11 @@ export function isOllamaAutoConnect(): boolean {
 }
 
 export function getTabModel(): string {
-  const override = cfg('tab.model', '');
-  return override || cfg('models.tabModel', getModel());
+  const override = cfg('tab.model', '').trim();
+  if (override) return override;
+  const tab = cfg('models.tabModel', '').trim();
+  if (tab) return tab;
+  return getModel();
 }
 
 export function getInlineModel(): string {

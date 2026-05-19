@@ -10,6 +10,23 @@ import { appendMemory } from './memories.js';
 const WRITE_TOOLS = new Set(['write_file', 'search_replace', 'Shell', 'run_terminal']);
 const READ_ONLY_MODES: AgentMode[] = ['plan', 'ask'];
 
+/** Some models send `content` / `body` instead of `contents`. */
+export function normalizeWriteFileArgs(
+  args: Record<string, unknown>
+): { path: string; contents: string } | null {
+  const p = args.path;
+  if (typeof p !== 'string' || !p.trim()) return null;
+  const raw =
+    args.contents ??
+    args.content ??
+    args.body ??
+    args.text ??
+    args.code ??
+    args.data;
+  if (typeof raw !== 'string') return null;
+  return { path: p.trim(), contents: raw };
+}
+
 export function getToolDefinitions(
   mode: AgentMode,
   mcpHub?: McpHub,
@@ -36,10 +53,14 @@ export function getToolDefinitions(
       type: 'function' as const,
       function: {
         name: 'write_file',
-        description: 'Write or create a file',
+        description:
+          'Write or create a file with the FULL file contents in the `contents` field (required). Never create an empty file when the user asked for code — put the complete implementation in `contents`.',
         parameters: {
           type: 'object',
-          properties: { path: { type: 'string' }, contents: { type: 'string' } },
+          properties: {
+            path: { type: 'string', description: 'Relative path from workspace root' },
+            contents: { type: 'string', description: 'Complete file text to write' },
+          },
           required: ['path', 'contents'],
         },
       },
@@ -262,7 +283,31 @@ function localGrep(workspaceRoot: string, pattern: string, searchPath?: string):
   }
 }
 
+function toolError(err: unknown): string {
+  return `Error: ${err instanceof Error ? err.message : String(err)}`;
+}
+
 export async function executeTool(
+  name: string,
+  args: Record<string, unknown>,
+  ctx: {
+    mode: AgentMode;
+    workspaceRoot: string;
+    bridge?: IdeBridge;
+    indexer?: CodebaseIndexer;
+    mcpHub?: McpHub;
+    onModeSwitch?: (mode: AgentMode) => void;
+    onDiff?: (file: string, oldContent: string, newContent: string) => void;
+  }
+): Promise<string> {
+  try {
+    return await executeToolInner(name, args, ctx);
+  } catch (err) {
+    return toolError(err);
+  }
+}
+
+async function executeToolInner(
   name: string,
   args: Record<string, unknown>,
   ctx: {
@@ -293,6 +338,7 @@ export async function executeTool(
         return bridge.readFile(p, args.offset as number | undefined, args.limit as number | undefined);
       }
       const abs = path.resolve(ws, p);
+      if (!fs.existsSync(abs)) return `Error: File not found: ${p}`;
       const content = fs.readFileSync(abs, 'utf8');
       const lines = content.split('\n');
       const start = ((args.offset as number) ?? 1) - 1;
@@ -300,15 +346,22 @@ export async function executeTool(
       return lines.slice(start, end).map((l, i) => `${start + i + 1}|${l}`).join('\n');
     }
     case 'write_file': {
-      const p = args.path as string;
-      const contents = args.contents as string;
+      const normalized = normalizeWriteFileArgs(args);
+      if (!normalized) {
+        return 'Error: write_file requires path and non-missing contents (use `contents` with the full file body).';
+      }
+      const { path: p, contents } = normalized;
+      if (!contents.trim()) {
+        return 'Error: write_file refused empty contents. Call write_file again with the full file implementation in `contents`.';
+      }
       if (bridge) {
         const old = fs.existsSync(path.resolve(ws, p))
           ? fs.readFileSync(path.resolve(ws, p), 'utf8')
           : '';
         await bridge.writeFile(p, contents);
         ctx.onDiff?.(p, old, contents);
-        return `Wrote ${p}`;
+        const lines = contents.split('\n').length;
+        return `Wrote ${p} (${lines} lines, ${contents.length} chars)`;
       }
       const abs = path.resolve(ws, p);
       fs.mkdirSync(path.dirname(abs), { recursive: true });
@@ -316,7 +369,8 @@ export async function executeTool(
       fs.writeFileSync(abs, contents);
       ctx.indexer?.updateFile(p);
       ctx.onDiff?.(p, old, contents);
-      return `Wrote ${p}`;
+      const lines = contents.split('\n').length;
+      return `Wrote ${p} (${lines} lines, ${contents.length} chars)`;
     }
     case 'search_replace': {
       const p = args.path as string;

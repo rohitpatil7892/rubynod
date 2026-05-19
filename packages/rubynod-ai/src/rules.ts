@@ -94,7 +94,8 @@ export function loadProjectRules(workspaceRoot: string): LoadedRules {
 export function buildSystemPrompt(workspaceRoot: string, mode: string): string {
   const { systemParts, skills } = loadProjectRules(workspaceRoot);
   const modeInstructions: Record<string, string> = {
-    agent: 'You are Rubynod Agent. You may read/write files and run terminal commands via tools.',
+    agent:
+      'You are Rubynod Agent. You may read/write files and run terminal commands via tools. When creating or editing files, always use write_file with the complete file in the `contents` argument — never leave new files empty. Prefer write_file over shell touch/echo for new code files.',
     plan: 'You are in PLAN mode. Explore read-only. Do NOT call write or terminal tools. Output a structured plan.',
     ask: 'You are in ASK mode. Answer questions only. Do NOT call write or terminal tools.',
     debug: 'You are in DEBUG mode. Focus on runtime evidence, logs, and reproduction steps.',

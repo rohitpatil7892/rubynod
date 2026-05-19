@@ -36,11 +36,18 @@ export function createIdeBridge(): Record<string, (...args: any[]) => Promise<un
   return {
     readFile: async (filePath: string, offset?: number, limit?: number) => {
       const abs = path.isAbsolute(filePath) ? filePath : path.join(ws(), filePath);
-      const doc = await vscode.workspace.openTextDocument(abs);
-      const lines = doc.getText().split('\n');
-      const start = (offset ?? 1) - 1;
-      const end = limit ? start + limit : lines.length;
-      return lines.slice(start, end).map((l, i) => `${start + i + 1}|${l}`).join('\n');
+      if (!fs.existsSync(abs)) {
+        return `Error: File not found: ${filePath}`;
+      }
+      try {
+        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(abs));
+        const lines = doc.getText().split('\n');
+        const start = (offset ?? 1) - 1;
+        const end = limit ? start + limit : lines.length;
+        return lines.slice(start, end).map((l, i) => `${start + i + 1}|${l}`).join('\n');
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+      }
     },
     writeFile: async (filePath: string, content: string) => {
       const abs = path.isAbsolute(filePath) ? filePath : path.join(ws(), filePath);
@@ -56,6 +63,7 @@ export function createIdeBridge(): Record<string, (...args: any[]) => Promise<un
     },
     searchReplace: async (filePath: string, oldStr: string, newStr: string, replaceAll?: boolean) => {
       const abs = path.isAbsolute(filePath) ? filePath : path.join(ws(), filePath);
+      if (!fs.existsSync(abs)) return `Error: File not found: ${filePath}`;
       let content = fs.readFileSync(abs, 'utf8');
       if (replaceAll) content = content.split(oldStr).join(newStr);
       else content = content.replace(oldStr, newStr);
@@ -84,7 +92,8 @@ export function createIdeBridge(): Record<string, (...args: any[]) => Promise<un
       }
     },
     listDir: async (dirPath: string) => {
-      const abs = path.join(ws(), dirPath || '.');
+      const abs = path.isAbsolute(dirPath) ? dirPath : path.join(ws(), dirPath || '.');
+      if (!fs.existsSync(abs)) return `Error: Directory not found: ${dirPath || '.'}`;
       return fs.readdirSync(abs, { withFileTypes: true })
         .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
         .join('\n');

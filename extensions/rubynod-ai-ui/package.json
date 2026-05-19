@@ -20,13 +20,14 @@
     },
     "views": {
       "rubynod-ai": [
-        { "type": "webview", "id": "rubynod.chatView", "name": "Chat" },
-        { "type": "webview", "id": "rubynod.composerView", "name": "Composer" }
+        { "type": "webview", "id": "rubynod.chatView", "name": "Chat" }
       ]
     },
     "commands": [
+      { "command": "rubynod.startAiService", "title": "Rubynod: Start AI Service" },
+      { "command": "rubynod.clearChat", "title": "Rubynod: Clear Chat History" },
       { "command": "rubynod.openChat", "title": "Rubynod: Open Chat" },
-      { "command": "rubynod.openComposer", "title": "Rubynod: Open Composer" },
+      { "command": "rubynod.openComposer", "title": "Rubynod: Open Chat (Composer)" },
       { "command": "rubynod.openSettings", "title": "Rubynod: Open Settings" },
       { "command": "rubynod.inlineEdit", "title": "Rubynod: Inline Edit" },
       { "command": "rubynod.addFileToChat", "title": "Rubynod: Add File to Chat" },
@@ -81,7 +82,7 @@
         "mac": "cmd+l"
       },
       {
-        "command": "rubynod.openComposer",
+        "command": "rubynod.openChat",
         "key": "ctrl+shift+i",
         "mac": "cmd+shift+i"
       }
@@ -94,6 +95,12 @@
           "default": "http://127.0.0.1:3847",
           "description": "URL of the Rubynod AI agent service.",
           "order": 1
+        },
+        "rubynod.ai.repoPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to your rubynod git clone (for Start AI Service). Auto-detected when the workspace is the rubynod repo.",
+          "order": 2
         },
 
         "rubynod.models.provider": {

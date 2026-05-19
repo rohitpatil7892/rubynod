@@ -217,9 +217,14 @@ app.post('/agent/run', async (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
-  for await (const event of runAgent(body, getIdeBridge())) {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
-    if (event.type === 'done' || event.type === 'error') break;
+  try {
+    for await (const event of runAgent(body, getIdeBridge())) {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+      if (event.type === 'done' || event.type === 'error') break;
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.write(`data: ${JSON.stringify({ type: 'error', data: { message } })}\n\n`);
   }
   res.end();
 });
@@ -259,8 +264,13 @@ app.post('/tab-complete', async (req, res) => {
     model?: string;
     apiKey?: string;
   };
-  const suggestion = await tabComplete(prefix, suffix, { model, apiKey });
-  res.json({ suggestion });
+  try {
+    const suggestion = await tabComplete(prefix, suffix, { model, apiKey });
+    res.json({ suggestion });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ suggestion: '', error: message });
+  }
 });
 
 app.post('/composer/checkpoint', (req, res) => {
@@ -325,6 +335,13 @@ wss.on('connection', (ws) => {
       ws.send(JSON.stringify({ type: 'error', data: { message: String(e) } }));
     }
   });
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[rubynod-ai] uncaughtException:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[rubynod-ai] unhandledRejection:', reason);
 });
 
 server.listen(PORT, HOST, () => {

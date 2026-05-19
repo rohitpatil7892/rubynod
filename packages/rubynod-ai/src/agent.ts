@@ -6,6 +6,11 @@ import { getCachedContextPack, setCachedContextPack } from './context-cache.js';
 import { queueIndexBuild } from './index-queue.js';
 import { ModelRouter, resolveModelConfig } from './model-router.js';
 import { getToolDefinitions, executeTool } from './tools.js';
+import {
+  thinkingLabel,
+  describeToolStart,
+  describeToolEnd,
+} from './agent-activity.js';
 import type {
   AgentEvent,
   AgentMode,
@@ -107,7 +112,18 @@ export async function* runAgent(
   const userContent = formatContext(contextAttachments) + '\n\n' + req.message;
   thread.messages.push({ role: 'user', content: userContent });
 
-  const system = buildSystemPrompt(req.workspaceRoot, mode);
+  const trimmed = req.message.trim();
+  const isGreeting =
+    trimmed.length <= 48 &&
+    /^(hi|hello|hey|howdy|yo|sup|thanks|thank you|good morning|good afternoon|good evening)[\s!.?,']*$/i.test(
+      trimmed
+    );
+
+  let system = buildSystemPrompt(req.workspaceRoot, mode);
+  if (isGreeting) {
+    system +=
+      '\n\nThe user sent a brief greeting only. Reply in one or two friendly sentences. Do not call read_file or any other tools.';
+  }
   const messages: ChatMessage[] = [
     { role: 'system', content: system },
     ...thread.messages,
@@ -120,16 +136,26 @@ export async function* runAgent(
       break;
     }
 
-    const tools = getToolDefinitions(thread.mode, mcpHub, {
-      webSearch: cs?.webSearchEnabled || process.env.RUBYNOD_WEB_SEARCH === '1',
-    });
+    const tools = isGreeting
+      ? []
+      : getToolDefinitions(thread.mode, mcpHub, {
+          webSearch: cs?.webSearchEnabled || process.env.RUBYNOD_WEB_SEARCH === '1',
+        });
     let assistantText = '';
     const pendingToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
     let streamedAnyText = false;
 
+    const thinkId = `think-${turn}`;
+    const thinkMeta = thinkingLabel(turn, mode);
     yield {
-      type: 'thinking',
-      data: { label: turn === 0 ? 'Thinking' : 'Continuing', threadId },
+      type: 'activity',
+      data: {
+        id: thinkId,
+        step: thinkMeta.step,
+        label: thinkMeta.label,
+        status: 'active',
+        threadId,
+      },
     };
 
     try {
@@ -152,12 +178,24 @@ export async function* runAgent(
       break;
     }
 
+    yield {
+      type: 'activity',
+      data: { id: thinkId, step: thinkMeta.step, label: thinkMeta.label, status: 'done', threadId },
+    };
+
     if (pendingToolCalls.length === 0) {
       thread.messages.push({ role: 'assistant', content: assistantText });
       if (mode === 'plan' && assistantText) {
         yield { type: 'plan', data: { content: assistantText, threadId } };
       }
       break;
+    }
+
+    if (assistantText.trim()) {
+      yield {
+        type: 'thought',
+        data: { text: assistantText.trim(), threadId },
+      };
     }
 
     thread.messages.push({
@@ -178,26 +216,55 @@ export async function* runAgent(
         parsed = {};
       }
 
+      const act = describeToolStart(tc.name, parsed);
+      yield {
+        type: 'activity',
+        data: {
+          id: tc.id,
+          step: act.step,
+          label: act.label,
+          detail: act.detail,
+          status: 'active',
+          threadId,
+        },
+      };
       yield { type: 'tool_start', data: { id: tc.id, name: tc.name, args: parsed, threadId } };
 
-      const result = await executeTool(tc.name, parsed, {
-        mode: thread.mode,
-        workspaceRoot: req.workspaceRoot,
-        bridge,
-        indexer,
-        mcpHub,
-        onModeSwitch: (m) => {
-          thread!.mode = m;
-        },
-        onDiff: (file, oldC, newC) => {
-          const ev: AgentEvent = {
-            type: 'diff',
-            data: { file, oldContent: oldC, newContent: newC, threadId },
-          };
-          onEvent?.(ev);
-        },
-      });
+      let result: string;
+      try {
+        result = await executeTool(tc.name, parsed, {
+          mode: thread.mode,
+          workspaceRoot: req.workspaceRoot,
+          bridge,
+          indexer,
+          mcpHub,
+          onModeSwitch: (m) => {
+            thread!.mode = m;
+          },
+          onDiff: (file, oldC, newC) => {
+            const ev: AgentEvent = {
+              type: 'diff',
+              data: { file, oldContent: oldC, newContent: newC, threadId },
+            };
+            onEvent?.(ev);
+          },
+        });
+      } catch (err) {
+        result = `Error: ${err instanceof Error ? err.message : String(err)}`;
+      }
 
+      const ok = !result.startsWith('Error:') && !result.startsWith('Rejected');
+      yield {
+        type: 'activity',
+        data: {
+          id: tc.id,
+          step: act.step,
+          label: act.label,
+          detail: describeToolEnd(tc.name, result, ok),
+          status: ok ? 'done' : 'error',
+          threadId,
+        },
+      };
       yield { type: 'tool_end', data: { id: tc.id, name: tc.name, result, threadId } };
 
       const toolMsg: ChatMessage = {

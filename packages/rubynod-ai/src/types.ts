@@ -60,7 +60,17 @@ export interface ToolCall {
 }
 
 export interface AgentEvent {
-  type: 'text' | 'tool_start' | 'tool_end' | 'diff' | 'error' | 'done' | 'plan' | 'thinking';
+  type:
+    | 'text'
+    | 'tool_start'
+    | 'tool_end'
+    | 'diff'
+    | 'error'
+    | 'done'
+    | 'plan'
+    | 'thinking'
+    | 'activity'
+    | 'thought';
   data: unknown;
 }
 

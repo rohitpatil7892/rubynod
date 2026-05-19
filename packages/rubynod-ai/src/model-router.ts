@@ -23,9 +23,11 @@ export function resolveModelConfig(overrides?: Partial<ModelConfig>): ModelConfi
   };
 
   const d = defaults[provider];
+  const modelRaw = overrides?.model ?? process.env.RUBYNOD_MODEL ?? d.model;
+  const model = typeof modelRaw === 'string' ? modelRaw.trim() : d.model;
   return {
     provider,
-    model: overrides?.model ?? process.env.RUBYNOD_MODEL ?? d.model,
+    model: model || d.model,
     baseUrl: overrides?.baseUrl ?? process.env.RUBYNOD_BASE_URL ?? d.baseUrl,
     apiKey:
       overrides?.apiKey ??
@@ -116,6 +118,9 @@ export class ModelRouter {
   }
 
   async fim(prefix: string, suffix: string): Promise<string> {
+    if (!this.model?.trim()) {
+      throw new Error('Tab completion model is not configured. Set rubynod.models.chatModel or rubynod.tab.model.');
+    }
     const res = await this.client.chat.completions.create({
       model: this.model,
       messages: [

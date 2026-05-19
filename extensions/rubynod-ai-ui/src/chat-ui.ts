@@ -31,47 +31,55 @@ export function getChatHtml(defaultMode: string): string {
     overflow: hidden;
   }
 
-  /* —— Header —— */
-  .header {
-    flex-shrink: 0;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--rn-border);
-    display: flex; align-items: center; gap: 8px;
-    background: var(--rn-surface-2);
+  /* —— Chips (above composer input) —— */
+  #chips {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    min-height: 0; margin-bottom: 6px;
   }
-  .brand {
-    font-weight: 600; font-size: 12px; letter-spacing: 0.02em;
-    color: var(--rn-text); margin-right: auto;
+  #chips:empty { display: none; }
+  #targets {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-bottom: 6px; min-height: 0;
   }
-  .brand span { color: var(--rn-accent); }
-  .pill {
-    font-size: 11px; font-weight: 500; padding: 4px 10px;
-    border-radius: 20px; border: 1px solid var(--rn-border);
-    background: var(--rn-surface);
-    color: var(--rn-text); cursor: pointer;
+  #targets:empty { display: none; }
+  .target-chip {
+    font-size: 11px; padding: 3px 8px 3px 10px;
+    border-radius: 20px;
+    background: color-mix(in srgb, #a78bfa 12%, var(--rn-surface));
+    border: 1px solid color-mix(in srgb, #a78bfa 35%, var(--rn-border));
+    color: var(--rn-text);
+    display: inline-flex; align-items: center; gap: 6px;
+    cursor: default; max-width: 220px;
   }
-  .pill select {
-    border: none; background: transparent; color: inherit;
-    font: inherit; cursor: pointer; outline: none;
-  }
-  .icon-btn {
-    width: 28px; height: 28px; border-radius: var(--rn-radius-sm);
+  .target-chip .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .target-chip .x { opacity: 0.6; cursor: pointer; font-size: 14px; }
+  .target-chip .x:hover { opacity: 1; }
+  .toolbar-text-btn {
+    font-size: 10px; font-weight: 600; padding: 5px 8px;
+    border-radius: var(--rn-radius-sm);
     border: 1px solid var(--rn-border);
     background: var(--rn-surface);
     color: var(--rn-muted); cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 14px; transition: background 0.15s, color 0.15s;
+    flex-shrink: 0;
   }
-  .icon-btn:hover { background: var(--rn-accent-soft); color: var(--rn-text); }
-  .icon-btn.danger:hover { color: #f87171; border-color: #f87171; }
-
-  /* —— Chips —— */
-  #chips {
-    flex-shrink: 0; padding: 6px 12px 0;
-    display: flex; flex-wrap: wrap; gap: 6px;
-    min-height: 0;
+  .toolbar-text-btn:hover { color: var(--rn-text); border-color: var(--rn-accent); }
+  .toolbar-text-btn.hidden { display: none; }
+  .diff-card {
+    border: 1px solid var(--rn-accent);
+    border-radius: var(--rn-radius);
+    padding: 10px 12px; margin: 8px 0;
+    background: var(--rn-accent-soft);
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    font-size: 12px;
   }
-  #chips:empty { display: none; }
+  .diff-card .diff-file { flex: 1; font-weight: 500; min-width: 120px; }
+  .diff-card button {
+    padding: 4px 10px; border-radius: var(--rn-radius-sm);
+    border: 1px solid var(--rn-border); cursor: pointer;
+    font-size: 11px; font-weight: 600;
+  }
+  .diff-card .accept { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; }
+  .diff-card .reject { background: transparent; color: var(--rn-muted); }
   .chip {
     font-size: 11px; padding: 3px 8px 3px 10px;
     border-radius: 20px;
@@ -90,10 +98,10 @@ export function getChatHtml(defaultMode: string): string {
   }
   .chip .x:hover { opacity: 1; background: rgba(255,255,255,0.1); }
 
-  /* —— Mentions —— */
+  /* —— Mentions (above composer input) —— */
   #mention-box {
-    display: none; flex-shrink: 0;
-    margin: 6px 12px 0; border: 1px solid var(--rn-border);
+    display: none;
+    margin-bottom: 6px; border: 1px solid var(--rn-border);
     border-radius: var(--rn-radius);
     background: var(--rn-surface-2);
     max-height: 180px; overflow-y: auto;
@@ -114,8 +122,9 @@ export function getChatHtml(defaultMode: string): string {
 
   /* —— Thread —— */
   #thread {
-    flex: 1; overflow-y: auto; overflow-x: hidden;
-    padding: 16px 12px 8px;
+    flex: 1 1 0; min-height: 0;
+    overflow-y: auto; overflow-x: hidden;
+    padding: 16px 12px 12px;
     display: flex; flex-direction: column; gap: 16px;
     scroll-behavior: smooth;
   }
@@ -156,22 +165,105 @@ export function getChatHtml(defaultMode: string): string {
     background: var(--vscode-textCodeBlock-background, rgba(127,127,127,0.2));
     padding: 2px 5px; border-radius: 4px; font-size: 12px;
   }
-
-  .thinking {
-    display: inline-flex; align-items: center; gap: 10px;
-    padding: 10px 14px; border-radius: var(--rn-radius);
-    background: var(--rn-surface-2);
+  .assistant-text .md-p { margin: 0 0 10px; }
+  .assistant-text .md-p:last-child { margin-bottom: 0; }
+  .assistant-text pre.code-block {
+    margin: 10px 0;
+    padding: 10px 12px;
+    border-radius: var(--rn-radius-sm);
     border: 1px solid var(--rn-border);
-    color: var(--rn-muted); font-size: 12px;
+    background: var(--vscode-terminal-background, #0d0d0d);
+    color: var(--vscode-terminal-foreground, #d4d4d4);
+    overflow-x: auto;
+    font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre;
+    word-break: normal;
   }
-  .thinking .dots { display: flex; gap: 4px; }
-  .thinking .dots span {
-    width: 5px; height: 5px; border-radius: 50%;
-    background: var(--rn-accent);
-    animation: pulse 1.2s ease-in-out infinite;
+  .assistant-text pre.code-block code {
+    display: block;
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
   }
-  .thinking .dots span:nth-child(2) { animation-delay: 0.15s; }
-  .thinking .dots span:nth-child(3) { animation-delay: 0.3s; }
+  .tok-keyword { color: var(--vscode-symbolIcon-keywordForeground, #569cd6); }
+  .tok-string { color: var(--vscode-debugTokenExpression-string, #ce9178); }
+  .tok-comment { color: var(--vscode-editorLineNumber-activeForeground, #6a9955); font-style: italic; }
+  .tok-number { color: var(--vscode-debugTokenExpression-number, #b5cea8); }
+  .tok-function { color: var(--vscode-symbolIcon-functionForeground, #dcdcaa); }
+  .tok-type { color: var(--vscode-symbolIcon-classForeground, #4ec9b0); }
+  .tool-result { margin-top: 8px; font-size: 10px; color: var(--rn-muted); }
+  .assistant-text .code-lang {
+    display: block;
+    font-size: 10px;
+    color: var(--rn-muted);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .activity-panel {
+    align-self: stretch;
+    border: 1px solid var(--rn-border);
+    border-radius: var(--rn-radius);
+    background: var(--rn-surface-2);
+    margin: 4px 0 12px;
+    overflow: hidden;
+  }
+  .activity-panel.done { opacity: 0.92; }
+  .activity-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--rn-border);
+    font-size: 11px; font-weight: 600;
+    color: var(--rn-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .activity-header .spinner { width: 10px; height: 10px; }
+  .activity-steps { padding: 6px 0; }
+  .activity-step {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 7px 12px;
+    font-size: 12px;
+    border-left: 2px solid transparent;
+  }
+  .activity-step.active { border-left-color: var(--rn-accent); background: var(--rn-accent-soft); }
+  .activity-step.done { border-left-color: color-mix(in srgb, var(--rn-accent) 40%, transparent); }
+  .activity-step.error { border-left-color: #f87171; }
+  .activity-step-icon {
+    width: 20px; height: 20px; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; flex-shrink: 0; font-weight: 700;
+  }
+  .activity-step-icon.think { background: #3d2a38; color: #f9a8d4; }
+  .activity-step-icon.plan { background: #2e2a5c; color: #c4b5fd; }
+  .activity-step-icon.explore { background: #1e3a5f; color: #93c5fd; }
+  .activity-step-icon.edit { background: #3d3420; color: #fcd34d; }
+  .activity-step-icon.run { background: #1a3d1a; color: #86efac; }
+  .activity-step-icon.search { background: #3d3420; color: #fcd34d; }
+  .activity-step-body { flex: 1; min-width: 0; }
+  .activity-step-label { font-weight: 500; color: var(--rn-text); line-height: 1.4; }
+  .activity-step-detail {
+    font-size: 11px; color: var(--rn-muted);
+    margin-top: 2px; line-height: 1.4;
+    word-break: break-word;
+  }
+  .activity-thought {
+    margin: 0 12px 8px;
+    padding: 8px 10px;
+    border-radius: var(--rn-radius-sm);
+    background: var(--rn-surface);
+    border: 1px solid var(--rn-border);
+    font-size: 11px; line-height: 1.5;
+    color: var(--rn-muted);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 120px;
+    overflow-y: auto;
+  }
   @keyframes pulse {
     0%, 100% { opacity: 0.35; transform: scale(0.85); }
     50% { opacity: 1; transform: scale(1); }
@@ -216,43 +308,122 @@ export function getChatHtml(defaultMode: string): string {
   }
   .tool-card.expanded .tool-body { display: block; }
 
-  /* —— Composer —— */
+  /* —— Composer (bottom: mode, @, stop, send) —— */
   .composer {
     flex-shrink: 0;
-    padding: 10px 12px 12px;
+    padding: 8px 12px 10px;
     background: var(--rn-surface-2);
     border-top: 1px solid var(--rn-border);
     box-shadow: var(--rn-shadow);
   }
-  #status {
-    font-size: 11px; color: var(--rn-muted);
-    min-height: 16px; margin-bottom: 8px;
-    display: flex; align-items: center; gap: 8px;
+  .composer-status-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    min-height: 22px;
+    margin-bottom: 6px;
   }
+  .composer-status-row.work-active {
+    justify-content: space-between;
+  }
+  .ai-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px 3px 6px;
+    border-radius: 20px;
+    border: 1px solid var(--rn-border);
+    background: var(--rn-surface);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--rn-muted);
+    cursor: pointer;
+    line-height: 1;
+    flex-shrink: 0;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .ai-status:hover { border-color: var(--rn-accent); background: var(--rn-accent-soft); }
+  .ai-status.online { color: #4ade80; border-color: color-mix(in srgb, #4ade80 35%, var(--rn-border)); }
+  .ai-status.offline { color: #f87171; border-color: color-mix(in srgb, #f87171 35%, var(--rn-border)); }
+  .ai-status.checking { color: var(--rn-muted); }
+  .ai-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+  .ai-status.checking .ai-status-dot { animation: pulse 1s ease-in-out infinite; }
+  #status {
+    flex: 1;
+    min-width: 0;
+    font-size: 11px;
+    color: var(--rn-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #status:empty { display: none; }
   .composer-box {
-    display: flex; flex-direction: column; gap: 8px;
+    display: flex; flex-direction: column; gap: 0;
     border: 1px solid var(--rn-border);
     border-radius: var(--rn-radius);
     background: var(--rn-surface);
-    padding: 8px 8px 8px 12px;
+    overflow: hidden;
     transition: border-color 0.15s, box-shadow 0.15s;
   }
   .composer-box:focus-within {
     border-color: var(--rn-accent);
     box-shadow: 0 0 0 1px var(--rn-accent-soft);
   }
+  .composer-input-wrap {
+    padding: 10px 12px 4px;
+  }
   #input {
     width: 100%; min-height: 40px; max-height: 140px;
     resize: none; border: none; background: transparent;
     color: var(--rn-text); font-family: inherit;
     font-size: 13px; line-height: 1.5; outline: none;
-    padding: 4px 0;
+    padding: 0;
   }
-  #input::placeholder { color: var(--rn-muted); }
-  .composer-actions {
-    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  #input::placeholder {
+    color: var(--rn-muted);
+    opacity: 1;
   }
-  .hint { font-size: 10px; color: var(--rn-muted); }
+  .composer-toolbar {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 8px 8px;
+    border-top: 1px solid var(--rn-border);
+    background: color-mix(in srgb, var(--rn-surface-2) 40%, var(--rn-surface));
+  }
+  .mode-select {
+    font-size: 11px; font-weight: 500;
+    padding: 5px 8px; border-radius: var(--rn-radius-sm);
+    border: 1px solid var(--rn-border);
+    background: var(--rn-surface);
+    color: var(--rn-text); cursor: pointer;
+    outline: none;
+  }
+  .mode-select:hover { border-color: var(--rn-accent); }
+  .icon-btn {
+    width: 28px; height: 28px; border-radius: var(--rn-radius-sm);
+    border: 1px solid var(--rn-border);
+    background: var(--rn-surface);
+    color: var(--rn-muted); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    flex-shrink: 0;
+  }
+  .icon-btn:hover { background: var(--rn-accent-soft); color: var(--rn-text); border-color: var(--rn-accent); }
+  .icon-btn.danger { color: #f87171; border-color: color-mix(in srgb, #f87171 40%, var(--rn-border)); }
+  .icon-btn.danger:hover { background: color-mix(in srgb, #f87171 15%, transparent); border-color: #f87171; }
+  .icon-btn.hidden { display: none; }
+  .toolbar-spacer { flex: 1; min-width: 4px; }
   #send-btn {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 8px 16px; border-radius: var(--rn-radius-sm);
@@ -265,6 +436,7 @@ export function getChatHtml(defaultMode: string): string {
   #send-btn:hover:not(:disabled) { filter: brightness(1.08); }
   #send-btn:active:not(:disabled) { transform: scale(0.98); }
   #send-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  #send-btn.hidden { display: none; }
   .spinner {
     width: 12px; height: 12px; border: 2px solid var(--rn-border);
     border-top-color: var(--rn-accent); border-radius: 50%;
@@ -274,34 +446,41 @@ export function getChatHtml(defaultMode: string): string {
 </style>
 </head>
 <body>
-  <div class="header">
-    <div class="brand">Ruby<span>nod</span></div>
-    <div class="pill">
-      <select id="mode" title="Mode">
-        <option value="agent"${defaultMode === 'agent' ? ' selected' : ''}>Agent</option>
-        <option value="plan"${defaultMode === 'plan' ? ' selected' : ''}>Plan</option>
-        <option value="ask"${defaultMode === 'ask' ? ' selected' : ''}>Ask</option>
-        <option value="debug"${defaultMode === 'debug' ? ' selected' : ''}>Debug</option>
-      </select>
-    </div>
-    <button class="icon-btn" id="ctx-btn" title="Add context (@)">@</button>
-    <button class="icon-btn danger" id="stop-btn" title="Stop">■</button>
-  </div>
-  <div id="chips"></div>
-  <div id="mention-box"></div>
   <div id="thread">
     <div class="empty-state" id="empty">
       <h2>What can I help you build?</h2>
-      <p>Ask anything about your code. Use <span class="kbd">@file</span> for context. <span class="kbd">Enter</span> to send.</p>
     </div>
   </div>
   <div class="composer">
-    <div id="status"></div>
+    <div id="targets"></div>
+    <div id="chips"></div>
+    <div id="mention-box"></div>
+    <div class="composer-status-row" id="composer-status-row">
+      <div id="status"></div>
+      <button type="button" id="ai-status" class="ai-status checking" title="Checking AI service…">
+        <span class="ai-status-dot"></span>
+        <span class="ai-status-label">…</span>
+      </button>
+    </div>
     <div class="composer-box">
-      <textarea id="input" rows="2" placeholder="Ask Rubynod…"></textarea>
-      <div class="composer-actions">
-        <span class="hint"><span class="kbd">Enter</span> send · <span class="kbd">Shift+Enter</span> new line</span>
-        <button id="send-btn" type="button">Send ↑</button>
+      <div class="composer-input-wrap">
+        <textarea id="input" rows="2" placeholder="Ask Rubynod… (@ files · Enter send · Shift+Enter new line)"></textarea>
+      </div>
+      <div class="composer-toolbar">
+        <select id="mode" class="mode-select" title="Mode">
+          <option value="agent"${defaultMode === 'agent' ? ' selected' : ''}>Agent</option>
+          <option value="plan"${defaultMode === 'plan' ? ' selected' : ''}>Plan</option>
+          <option value="ask"${defaultMode === 'ask' ? ' selected' : ''}>Ask</option>
+          <option value="debug"${defaultMode === 'debug' ? ' selected' : ''}>Debug</option>
+        </select>
+        <button type="button" class="icon-btn" id="ctx-btn" title="Add context (@)">@</button>
+        <button type="button" class="toolbar-text-btn" id="tabs-btn" title="Add open editor tabs as edit targets">Tabs</button>
+        <button type="button" class="toolbar-text-btn" id="checkpoint-btn" title="Save checkpoint">Save</button>
+        <button type="button" class="toolbar-text-btn hidden" id="accept-all-btn" title="Accept all pending diffs">Accept</button>
+        <button type="button" class="toolbar-text-btn hidden" id="reject-all-btn" title="Reject all pending diffs">Reject</button>
+        <span class="toolbar-spacer"></span>
+        <button type="button" class="icon-btn danger hidden" id="stop-btn" title="Stop generation">■</button>
+        <button type="button" id="send-btn">Send ↑</button>
       </div>
     </div>
   </div>
@@ -312,13 +491,62 @@ export function getChatHtml(defaultMode: string): string {
   const emptyEl = document.getElementById('empty');
   const input = document.getElementById('input');
   const statusEl = document.getElementById('status');
+  const composerStatusRow = document.getElementById('composer-status-row');
   const sendBtn = document.getElementById('send-btn');
+  const stopBtn = document.getElementById('stop-btn');
   const chips = document.getElementById('chips');
+  const targets = document.getElementById('targets');
   const mentionBox = document.getElementById('mention-box');
+  const acceptAllBtn = document.getElementById('accept-all-btn');
+  const rejectAllBtn = document.getElementById('reject-all-btn');
+  const aiStatusBtn = document.getElementById('ai-status');
+
+  function setAiStatus(online, checking) {
+    if (!aiStatusBtn) return;
+    aiStatusBtn.className = 'ai-status ' + (checking ? 'checking' : online ? 'online' : 'offline');
+    const label = aiStatusBtn.querySelector('.ai-status-label');
+    if (label) label.textContent = checking ? '…' : online ? 'Online' : 'Offline';
+    aiStatusBtn.title = checking
+      ? 'Checking AI service…'
+      : online
+        ? 'AI service connected (127.0.0.1:3847)'
+        : 'AI offline — click to start service';
+  }
+  if (aiStatusBtn) {
+    aiStatusBtn.onclick = () => vscode.postMessage({ type: 'startAiService' });
+  }
 
   let mentionActive = -1;
   let mentionItems = [];
-  let state = { running: false, assistantEl: null, thinkingEl: null, toolCards: {} };
+  let state = {
+    running: false,
+    assistantEl: null,
+    assistantMarkdown: '',
+    activityPanel: null,
+    activitySteps: {},
+    toolCards: {},
+    toolArgs: {},
+  };
+
+  function writeFileContents(args) {
+    if (!args) return '';
+    return args.contents || args.content || args.body || args.text || args.code || '';
+  }
+
+  function langFromPath(filePath) {
+    const ext = String(filePath || '').split('.').pop().toLowerCase();
+    const map = { ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript', py: 'python', rs: 'rust', go: 'go', java: 'java', json: 'json', md: 'markdown', sh: 'bash', yml: 'yaml', yaml: 'yaml' };
+    return map[ext] || ext || 'code';
+  }
+
+  function toolBodyWriteHtml(args) {
+    const text = writeFileContents(args);
+    if (!text) return '';
+    const lang = langFromPath(args.path);
+    return '<pre class="code-block" style="margin:0"><code>' + highlightCode(text.slice(0, 4000), lang) + '</code></pre>';
+  }
+
+  const stepIcons = { think: '◆', plan: '◇', explore: '↳', edit: '✎', run: '$_', search: '⌕' };
 
   function hideEmpty() {
     if (emptyEl && emptyEl.parentNode) emptyEl.remove();
@@ -358,6 +586,56 @@ export function getChatHtml(defaultMode: string): string {
 
   function escapeHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function highlightCode(code, lang) {
+    let s = escapeHtml(code);
+    s = s.replace(/\\/\\*[\\s\\S]*?\\*\\//g, function(m) { return '<span class="tok-comment">' + m + '</span>'; });
+    s = s.replace(/(^|[\\s;{}])(\\/\\/[^\\n]*)/g, function(_, pre, cm) { return pre + '<span class="tok-comment">' + cm + '</span>'; });
+    s = s.replace(/&quot;(?:[^&]|&(?!quot;))*&quot;/g, function(m) { return '<span class="tok-string">' + m + '</span>'; });
+    s = s.replace(/&#39;(?:[^&]|&(?!#39;))*&#39;/g, function(m) { return '<span class="tok-string">' + m + '</span>'; });
+    s = s.replace(new RegExp(String.fromCharCode(96) + '[^' + String.fromCharCode(96) + ']*' + String.fromCharCode(96), 'g'), function(m) { return '<span class="tok-string">' + m + '</span>'; });
+    s = s.replace(/\\b([A-Za-z_][\\w]*)\\s*(?=\\()/g, '<span class="tok-function">$1</span>');
+    s = s.replace(/\\b(?:const|let|var|function|return|if|else|elif|for|while|do|switch|case|break|continue|class|extends|import|export|from|as|async|await|try|catch|finally|throw|new|typeof|instanceof|interface|type|enum|implements|public|private|protected|static|void|int|float|double|bool|boolean|string|number|any|unknown|never|null|undefined|true|false|def|print|lambda|pass|raise|yield|with|package|func|struct|impl|use|pub|fn|mut|match|loop|crate|mod|super|trait|where)\\b/g, '<span class="tok-keyword">$&</span>');
+    s = s.replace(/\\b([A-Z][A-Za-z0-9_]*)\\b/g, '<span class="tok-type">$1</span>');
+    s = s.replace(/\\b(\\d+\\.?\\d*)\\b/g, '<span class="tok-number">$1</span>');
+    return s;
+  }
+
+  function renderInlineMarkdown(text) {
+    if (!text) return '';
+    let s = escapeHtml(text);
+    s = s.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
+    s = s.replace(new RegExp(String.fromCharCode(96) + '([^' + String.fromCharCode(96) + '\\\\n]+)' + String.fromCharCode(96), 'g'), '<code>$1</code>');
+    s = s.replace(/\\n/g, '<br>');
+    return '<p class="md-p">' + s + '</p>';
+  }
+
+  function renderAssistantMarkdown(el, raw) {
+    const fence = String.fromCharCode(96, 96, 96);
+    const parts = String(raw).split(fence);
+    let html = '';
+    for (let i = 0; i < parts.length; i++) {
+      if (i % 2 === 1) {
+        let chunk = parts[i];
+        let lang = '';
+        const nl = chunk.indexOf('\\n');
+        if (nl > 0) {
+          const maybeLang = chunk.slice(0, nl).trim();
+          if (/^[a-zA-Z0-9#+._-]+$/.test(maybeLang)) {
+            lang = maybeLang;
+            chunk = chunk.slice(nl + 1);
+          }
+        }
+        const code = chunk.replace(/\\n$/, '');
+        html += '<pre class="code-block">';
+        if (lang) html += '<span class="code-lang">' + escapeHtml(lang) + '</span>';
+        html += '<code>' + highlightCode(code, lang) + '</code></pre>';
+      } else if (parts[i]) {
+        html += renderInlineMarkdown(parts[i]);
+      }
+    }
+    el.innerHTML = html || '<p class="md-p"></p>';
   }
 
   function pickMention(idx) {
@@ -429,29 +707,85 @@ export function getChatHtml(defaultMode: string): string {
     statusEl.innerHTML = running
       ? '<span class="spinner"></span><span>' + escapeHtml(text) + '</span>'
       : (text ? escapeHtml(text) : '');
+    if (composerStatusRow) composerStatusRow.classList.toggle('work-active', !!running || !!text);
     sendBtn.disabled = running;
+    stopBtn.classList.toggle('hidden', !running);
+    sendBtn.classList.toggle('hidden', running);
     state.running = running;
   }
 
-  function hideThinking() {
-    if (state.thinkingEl) { state.thinkingEl.remove(); state.thinkingEl = null; }
+  function ensureActivityPanel() {
+    if (state.activityPanel) return state.activityPanel;
+    hideEmpty();
+    const panel = document.createElement('div');
+    panel.className = 'activity-panel';
+    panel.innerHTML =
+      '<div class="activity-header"><span class="spinner"></span><span>Working</span></div>' +
+      '<div class="activity-steps"></div>';
+    state.activityPanel = panel;
+    state.activitySteps = {};
+    thread.appendChild(panel);
+    scroll();
+    return panel;
   }
 
-  function showThinking(label) {
-    hideThinking();
-    hideEmpty();
-    const el = document.createElement('div');
-    el.className = 'thinking';
-    el.innerHTML = '<span class="dots"><span></span><span></span><span></span></span><span>' + escapeHtml(label || 'Thinking') + '…</span>';
-    state.thinkingEl = el;
-    thread.appendChild(el);
+  function finishActivityPanel() {
+    if (!state.activityPanel) return;
+    state.activityPanel.classList.add('done');
+    const header = state.activityPanel.querySelector('.activity-header span:last-child');
+    if (header) header.textContent = 'Done';
+    const spin = state.activityPanel.querySelector('.activity-header .spinner');
+    if (spin) spin.remove();
+  }
+
+  function upsertActivityStep(id, step, label, detail, status) {
+    const panel = ensureActivityPanel();
+    const stepsEl = panel.querySelector('.activity-steps');
+    let row = state.activitySteps[id];
+    const iconClass = step || 'think';
+    const icon = stepIcons[iconClass] || stepIcons.think;
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'activity-step';
+      row.dataset.id = id;
+      row.innerHTML =
+        '<span class="activity-step-icon ' + iconClass + '">' + icon + '</span>' +
+        '<div class="activity-step-body">' +
+          '<div class="activity-step-label"></div>' +
+          '<div class="activity-step-detail"></div>' +
+        '</div>';
+      stepsEl.appendChild(row);
+      state.activitySteps[id] = row;
+    }
+    row.className = 'activity-step ' + (status || 'active');
+    row.querySelector('.activity-step-label').textContent = label || '';
+    const detailEl = row.querySelector('.activity-step-detail');
+    if (detail) {
+      detailEl.textContent = detail;
+      detailEl.style.display = 'block';
+    } else if (status === 'active') {
+      detailEl.textContent = '';
+      detailEl.style.display = 'none';
+    }
+    scroll();
+  }
+
+  function addThought(text) {
+    if (!text || !text.trim()) return;
+    const panel = ensureActivityPanel();
+    let block = panel.querySelector('.activity-thought');
+    if (!block) {
+      block = document.createElement('div');
+      block.className = 'activity-thought';
+      panel.insertBefore(block, panel.querySelector('.activity-steps'));
+    }
+    block.textContent = text.trim();
     scroll();
   }
 
   function scroll() { thread.scrollTop = thread.scrollHeight; }
 
   function ensureAssistant() {
-    hideThinking();
     if (!state.assistantEl) {
       hideEmpty();
       const wrap = document.createElement('div');
@@ -461,6 +795,7 @@ export function getChatHtml(defaultMode: string): string {
       wrap.appendChild(text);
       thread.appendChild(wrap);
       state.assistantEl = text;
+      state.assistantMarkdown = '';
     }
     return state.assistantEl;
   }
@@ -477,13 +812,14 @@ export function getChatHtml(defaultMode: string): string {
 
   function appendText(delta) {
     const el = ensureAssistant();
-    el.textContent += delta;
+    state.assistantMarkdown += delta;
+    renderAssistantMarkdown(el, state.assistantMarkdown);
     scroll();
   }
 
   function startTool(id, name, args) {
-    hideThinking();
     state.assistantEl = null;
+    state.toolArgs[id] = args || {};
     const kind = toolKind(name);
     const card = document.createElement('div');
     card.className = 'tool-card running expanded';
@@ -496,7 +832,8 @@ export function getChatHtml(defaultMode: string): string {
       '</div>' +
       '<div class="tool-body"></div>';
     const body = card.querySelector('.tool-body');
-    if (kind === 'terminal' && args && args.command) body.textContent = '$ ' + args.command;
+    if (name === 'write_file' && writeFileContents(args)) body.innerHTML = toolBodyWriteHtml(args);
+    else if (kind === 'terminal' && args && args.command) body.textContent = '$ ' + args.command;
     else if (args && args.path) body.textContent = args.path;
     else if (args) body.textContent = JSON.stringify(args, null, 2).slice(0, 800);
     card.querySelector('.tool-header').onclick = () => card.classList.toggle('expanded');
@@ -514,7 +851,116 @@ export function getChatHtml(defaultMode: string): string {
     status.className = 'tool-status';
     status.textContent = ok === false ? 'Failed' : 'Done';
     const body = card.querySelector('.tool-body');
-    if (result) body.textContent = String(result).slice(0, 4000);
+    const args = state.toolArgs[id] || {};
+    if (name === 'write_file' && writeFileContents(args)) {
+      body.innerHTML = toolBodyWriteHtml(args);
+      if (result) body.insertAdjacentHTML('beforeend', '<div class="tool-result">' + escapeHtml(String(result)) + '</div>');
+    } else if (result) body.textContent = String(result).slice(0, 4000);
+    delete state.toolArgs[id];
+    scroll();
+  }
+
+  function renderToolHistory(entry) {
+    state.assistantEl = null;
+    const name = entry.name;
+    const args = entry.args || {};
+    const ok = entry.ok !== false;
+    const kind = toolKind(name);
+    const card = document.createElement('div');
+    card.className = 'tool-card expanded';
+    card.dataset.id = entry.id;
+    card.innerHTML =
+      '<div class="tool-header">' +
+        '<span class="tool-icon ' + kind + '">' + iconChar(kind) + '</span>' +
+        '<span class="tool-title">' + escapeHtml(toolLabel(name, args)) + '</span>' +
+        '<span class="tool-status">' + (ok ? 'Done' : 'Failed') + '</span>' +
+      '</div>' +
+      '<div class="tool-body"></div>';
+    const body = card.querySelector('.tool-body');
+    const result = entry.result || '';
+    if (name === 'write_file' && writeFileContents(args)) {
+      body.innerHTML = toolBodyWriteHtml(args);
+      if (result) body.insertAdjacentHTML('beforeend', '<div class="tool-result">' + escapeHtml(String(result)) + '</div>');
+    } else if (result) body.textContent = String(result).slice(0, 4000);
+    else if (kind === 'terminal' && args.command) body.textContent = '$ ' + args.command;
+    else if (args.path) body.textContent = args.path;
+    else if (Object.keys(args).length) body.textContent = JSON.stringify(args, null, 2).slice(0, 800);
+    card.querySelector('.tool-header').onclick = () => card.classList.toggle('expanded');
+    thread.appendChild(card);
+  }
+
+  function renderHistoryEntry(entry) {
+    if (!entry || !entry.kind) return;
+    if (entry.kind === 'user') {
+      appendUser(entry.text);
+      return;
+    }
+    if (entry.kind === 'assistant') {
+      hideEmpty();
+      state.assistantEl = null;
+      state.assistantMarkdown = '';
+      const el = ensureAssistant();
+      state.assistantMarkdown = entry.text;
+      renderAssistantMarkdown(el, entry.text);
+      state.assistantEl = null;
+      state.assistantMarkdown = '';
+      return;
+    }
+    if (entry.kind === 'tool') {
+      renderToolHistory(entry);
+      return;
+    }
+    if (entry.kind === 'error') {
+      hideEmpty();
+      state.assistantEl = null;
+      const el = ensureAssistant();
+      el.textContent = '⚠ ' + (entry.message || 'Error');
+      state.assistantEl = null;
+    }
+  }
+
+  function hydrateHistory(entries) {
+    if (!entries || !entries.length) return;
+    thread.innerHTML = '';
+    state = { running: false, assistantEl: null, assistantMarkdown: '', thinkingEl: null, activityPanel: null, activitySteps: {}, toolCards: {}, toolArgs: {} };
+    for (const entry of entries) renderHistoryEntry(entry);
+    setStatus('', false);
+    scroll();
+  }
+
+  function renderTargets(files) {
+    targets.innerHTML = (files || []).map(f =>
+      '<span class="target-chip" data-file="' + escapeHtml(f) + '">' +
+      '<span class="label">✎ ' + escapeHtml(f) + '</span><span class="x">×</span></span>'
+    ).join('');
+    targets.querySelectorAll('.target-chip .x').forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        const file = el.closest('.target-chip')?.dataset.file;
+        if (file) vscode.postMessage({ type: 'removeTarget', file });
+      };
+    });
+  }
+
+  function setPendingDiffs(count) {
+    const show = count > 0;
+    acceptAllBtn.classList.toggle('hidden', !show);
+    rejectAllBtn.classList.toggle('hidden', !show);
+  }
+
+  function showDiffCard(file) {
+    hideEmpty();
+    state.assistantEl = null;
+    const card = document.createElement('div');
+    card.className = 'diff-card';
+    card.dataset.file = file;
+    card.innerHTML =
+      '<span class="diff-file">📝 ' + escapeHtml(file) + '</span>' +
+      '<button type="button" class="accept">Accept</button>' +
+      '<button type="button" class="reject">Reject</button>';
+    card.querySelector('.accept').onclick = () => vscode.postMessage({ type: 'acceptDiff', file });
+    card.querySelector('.reject').onclick = () => vscode.postMessage({ type: 'rejectDiff', file });
+    thread.appendChild(card);
     scroll();
   }
 
@@ -533,6 +979,10 @@ export function getChatHtml(defaultMode: string): string {
 
   document.getElementById('send-btn').onclick = send;
   document.getElementById('ctx-btn').onclick = () => vscode.postMessage({ type: 'addContext' });
+  document.getElementById('tabs-btn').onclick = () => vscode.postMessage({ type: 'addOpenFiles' });
+  document.getElementById('checkpoint-btn').onclick = () => vscode.postMessage({ type: 'checkpoint' });
+  acceptAllBtn.onclick = () => vscode.postMessage({ type: 'acceptAll' });
+  rejectAllBtn.onclick = () => vscode.postMessage({ type: 'rejectAll' });
   document.getElementById('stop-btn').onclick = () => vscode.postMessage({ type: 'stop' });
 
   window.addEventListener('message', e => {
@@ -540,8 +990,18 @@ export function getChatHtml(defaultMode: string): string {
     switch (m.type) {
       case 'runStart':
         state.toolCards = {};
-        showThinking(m.label || 'Thinking');
+        state.assistantMarkdown = '';
+        state.activityPanel = null;
+        state.activitySteps = {};
+        upsertActivityStep('think-live', 'think', m.label || 'Thinking…', '', 'active');
         setStatus('Agent running…', true);
+        break;
+      case 'activity':
+        upsertActivityStep(m.id, m.step || 'think', m.label, m.detail, m.status || 'active');
+        setStatus(m.label || 'Working…', true);
+        break;
+      case 'thought':
+        addThought(m.text);
         break;
       case 'user':
         break;
@@ -556,19 +1016,36 @@ export function getChatHtml(defaultMode: string): string {
         endTool(m.id, m.name, m.result, m.ok);
         break;
       case 'diff':
+        showDiffCard(m.file);
+        break;
+      case 'diffResolved':
+        thread.querySelectorAll('.diff-card[data-file]').forEach(el => {
+          if (el.dataset.file === m.file) el.remove();
+        });
+        break;
+      case 'targets':
+        renderTargets(m.files || []);
+        break;
+      case 'aiStatus':
+        setAiStatus(!!m.online, !!m.checking);
+        break;
+      case 'pendingDiffs':
+        setPendingDiffs(m.count || 0);
         break;
       case 'runEnd':
-        hideThinking();
+        finishActivityPanel();
         setStatus('', false);
         state.assistantEl = null;
         break;
       case 'error':
-        hideThinking();
+        finishActivityPanel();
         ensureAssistant();
         appendText('\\n\\n⚠ ' + (m.message || 'Error'));
         setStatus('', false);
         state.running = false;
         sendBtn.disabled = false;
+        stopBtn.classList.add('hidden');
+        sendBtn.classList.remove('hidden');
         break;
       case 'atSuggestions':
         showMentions(m.suggestions || []);
@@ -586,10 +1063,15 @@ export function getChatHtml(defaultMode: string): string {
           };
         });
         break;
+      case 'hydrate':
+        hydrateHistory(m.entries || []);
+        break;
       case 'clear':
-        thread.innerHTML = '<div class="empty-state" id="empty"><h2>What can I help you build?</h2><p>Ask anything about your code.</p></div>';
-        state = { running: false, assistantEl: null, thinkingEl: null, toolCards: {} };
+        thread.innerHTML = '<div class="empty-state" id="empty"><h2>What can I help you build?</h2></div>';
+        state = { running: false, assistantEl: null, assistantMarkdown: '', activityPanel: null, activitySteps: {}, toolCards: {}, toolArgs: {} };
         sendBtn.disabled = false;
+        stopBtn.classList.add('hidden');
+        sendBtn.classList.remove('hidden');
         break;
     }
   });

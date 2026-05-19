@@ -24,6 +24,27 @@ export interface FileRef {
  *   @folder:packages/api
  *   @packages/api/   (folder by trailing slash)
  */
+const RESERVED_MENTIONS = new Set([
+  'codebase',
+  'web',
+  'symbol',
+  'folder',
+  'file',
+  'typescript',
+  'javascript',
+  'python',
+  'rust',
+  'go',
+]);
+
+/** @mentions must look like paths (foo.ts, src/bar), not bare words like @typescript. */
+function isLikelyFilePath(p: string): boolean {
+  if (p.startsWith('folder:')) return true;
+  if (p.includes('/') || p.includes('.')) return true;
+  if (RESERVED_MENTIONS.has(p.toLowerCase())) return false;
+  return false;
+}
+
 export function parseFileMentions(text: string): FileRef[] {
   const refs: FileRef[] = [];
   const seen = new Set<string>();
@@ -67,6 +88,7 @@ export function parseFileMentions(text: string): FileRef[] {
       }
       continue;
     }
+    if (!isLikelyFilePath(p)) continue;
     const start = m[2] ? parseInt(m[2], 10) : undefined;
     const end = m[3] ? parseInt(m[3], 10) : start;
     const key = `file:${p}:${start ?? ''}:${end ?? ''}`;

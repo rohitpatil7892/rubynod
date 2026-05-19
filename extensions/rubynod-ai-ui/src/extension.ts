@@ -1,7 +1,6 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { ChatViewProvider } from './chat-provider';
-import { ComposerViewProvider } from './composer-provider';
 import { attachTerminalListener } from './bridge';
 import { registerBridge } from './api';
 import { startBridgeServer, stopBridgeServer } from './bridge-server';
@@ -12,10 +11,11 @@ import { pickContext } from './context';
 import { getServiceUrl, getWorkspaceRoot } from './settings';
 import { attachmentFromUri } from './file-context';
 import { attachmentFromFolder } from './folder-context';
-import { setChatProviderRef } from './chat-provider';
+import { setChatProviderRef, getChatProviderRef } from './chat-provider';
 import { IndexService } from './index-service';
 import { UpdateChecker } from './update-checker';
 import { OllamaConnect } from './ollama-connect';
+import { isAiServiceHealthy, startAiService } from './ai-service';
 
 let chatProvider: ChatViewProvider;
 let indexService: IndexService;
@@ -29,18 +29,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   try {
     await registerBridge(bridgePort);
   } catch {
-    vscode.window.showWarningMessage(
-      `Rubynod AI service not reachable at ${getServiceUrl()}. Run: npm run dev:ai`
+    const start = 'Start AI Service';
+    const msg = await vscode.window.showWarningMessage(
+      `Rubynod AI service not reachable at ${getServiceUrl()}.`,
+      start
+    );
+    if (msg === start) void startAiService();
+  }
+
+  if (!(await isAiServiceHealthy())) {
+    void vscode.window.showInformationMessage(
+      'Rubynod: start the AI agent service before chatting (Cmd+Shift+P → Rubynod: Start AI Service).'
     );
   }
 
-  chatProvider = new ChatViewProvider(context.extensionUri);
+  chatProvider = new ChatViewProvider(context.extensionUri, context);
   setChatProviderRef(chatProvider);
-  const composerProvider = new ComposerViewProvider(context.extensionUri);
-
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chatProvider),
-    vscode.window.registerWebviewViewProvider(ComposerViewProvider.viewType, composerProvider)
+    vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chatProvider)
   );
 
   registerTabAutocomplete(context);
@@ -73,14 +79,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('rubynod.startAiService', () => startAiService()),
     vscode.commands.registerCommand('rubynod.openSettings', () => {
       vscode.commands.executeCommand('workbench.action.openSettings', '@ext:rubynod.rubynod-ai-ui');
     }),
     vscode.commands.registerCommand('rubynod.openChat', () => {
       vscode.commands.executeCommand('rubynod.chatView.focus');
     }),
+    vscode.commands.registerCommand('rubynod.clearChat', async () => {
+      const ok = await vscode.window.showWarningMessage(
+        'Clear all chat history for this workspace?',
+        { modal: true },
+        'Clear'
+      );
+      if (ok === 'Clear') await getChatProviderRef()?.clearHistory();
+    }),
     vscode.commands.registerCommand('rubynod.openComposer', () => {
-      vscode.commands.executeCommand('rubynod.composerView.focus');
+      vscode.commands.executeCommand('rubynod.chatView.focus');
     }),
     vscode.commands.registerCommand('rubynod.inlineEdit', runInlineEdit),
     vscode.commands.registerCommand('rubynod.addFileToChat', () => addToChat()),

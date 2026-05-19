@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getWorkspaceRoot, isYoloMode, isAutoApproveFileWrites } from './settings';
 
@@ -59,6 +60,21 @@ export async function acceptDiff(file: string): Promise<void> {
 }
 
 export async function rejectDiff(file: string): Promise<void> {
+  const d = pending.get(file);
+  if (d) {
+    const ws = getWorkspaceRoot();
+    const abs = path.isAbsolute(file) ? file : path.join(ws, file);
+    const uri = vscode.Uri.file(abs);
+    const edit = new vscode.WorkspaceEdit();
+    if (d.oldContent && fs.existsSync(abs)) {
+      const doc = await vscode.workspace.openTextDocument(uri);
+      edit.replace(uri, new vscode.Range(0, 0, doc.lineCount, 0), d.oldContent);
+      await vscode.workspace.applyEdit(edit);
+    } else if (!d.oldContent && fs.existsSync(abs)) {
+      edit.deleteFile(uri, { ignoreIfNotExists: true });
+      await vscode.workspace.applyEdit(edit);
+    }
+  }
   pending.delete(file);
   vscode.window.showInformationMessage(`Rejected changes: ${file}`);
 }

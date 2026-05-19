@@ -90,8 +90,9 @@ export class OllamaConnect implements vscode.Disposable {
         vscode.window.showInformationMessage(`Rubynod connected to Ollama (${model})`);
       }
     } catch {
-      this.statusItem.text = '$(error) Ollama — start AI service';
-      this.statusItem.tooltip = 'Run: npm run dev:ai';
+      this.statusItem.text = '$(error) Rubynod AI offline';
+      this.statusItem.command = 'rubynod.startAiService';
+      this.statusItem.tooltip = 'Click to start Rubynod AI service (port 3847)';
       this.statusItem.show();
     }
   }

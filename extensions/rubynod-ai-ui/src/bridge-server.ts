@@ -27,7 +27,9 @@ export function startBridgeServer(): Promise<number> {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ result }));
         } catch (e) {
-          res.writeHead(500).end(JSON.stringify({ error: String(e) }));
+          const error = e instanceof Error ? e.message : String(e);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error }));
         }
       });
     });
