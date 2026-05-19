@@ -81,6 +81,13 @@ export async function* streamAgent(opts: {
       }
     }
   }
+  if (buffer.startsWith('data: ')) {
+    try {
+      yield JSON.parse(buffer.slice(6)) as { type: string; data: unknown };
+    } catch {
+      // skip
+    }
+  }
 }
 
 export async function cancelAgent(threadId: string): Promise<void> {

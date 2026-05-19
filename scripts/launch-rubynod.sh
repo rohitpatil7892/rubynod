@@ -4,7 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-export PATH="/opt/homebrew/opt/node@20/bin:/opt/homebrew/bin:$PATH"
+# shellcheck source=ensure-node.sh
+source "$(dirname "$0")/ensure-node.sh"
+export PATH="/opt/homebrew/bin:$PATH"
 
 # Build if needed
 if [[ ! -d packages/rubynod-ai/dist ]]; then

@@ -16,20 +16,21 @@
     "extensions/*"
   ],
   "scripts": {
-    "build": "npm run build -w @rubynod/shared -w @rubynod/index -w @rubynod/mcp -w @rubynod/ai -w @rubynod/cli -w rubynod-ai-ui",
-    "build:all": "node scripts/build-all.mjs",
-    "dev:ai": "npm run dev -w @rubynod/ai",
-    "start:ai": "node scripts/run-ai.mjs",
-    "dev:ext": "npm run watch -w rubynod-ai-ui",
+    "build": "bash scripts/ensure-node.sh && npm run build -w @rubynod/shared -w @rubynod/index -w @rubynod/mcp -w @rubynod/ai -w @rubynod/cli -w rubynod-ai-ui",
+    "build:all": "bash scripts/ensure-node.sh && node scripts/build-all.mjs",
+    "dev:ai": "bash scripts/ensure-node.sh && npm run dev -w @rubynod/ai",
+    "start:ai": "bash scripts/ensure-node.sh && node scripts/run-ai.mjs",
+    "dev:ext": "bash scripts/ensure-node.sh && npm run watch -w rubynod-ai-ui",
     "setup:fork": "bash scripts/setup-code-oss-fork.sh",
     "setup:fork:win": "powershell -ExecutionPolicy Bypass -File scripts/setup-code-oss-fork.ps1",
     "test": "npm run test --workspaces --if-present",
-    "cli": "node packages/rubynod-cli/dist/cli.js",
-    "version:sync": "node scripts/sync-version.mjs",
-    "release:manifests": "node scripts/generate-update-manifest.mjs",
-    "package:ext": "npm run build -w rubynod-ai-ui && npx @vscode/vsce package extensions/rubynod-ai-ui --out dist/",
+    "cli": "bash scripts/ensure-node.sh && node packages/rubynod-cli/dist/cli.js",
+    "version:sync": "bash scripts/ensure-node.sh && node scripts/sync-version.mjs",
+    "release:manifests": "bash scripts/ensure-node.sh && node scripts/generate-update-manifest.mjs",
+    "package:ext": "bash scripts/ensure-node.sh && npm run build -w rubynod-ai-ui && cd extensions/rubynod-ai-ui && npx @vscode/vsce package --no-dependencies -o ../../dist",
     "build:ide": "bash scripts/build-ide.sh",
-    "launch": "bash scripts/launch-rubynod.sh"
+    "launch": "bash scripts/launch-rubynod.sh",
+    "install:ext": "code --install-extension dist/rubynod-ai-ui-0.1.0.vsix --force"
   },
   "engines": {
     "node": ">=20"

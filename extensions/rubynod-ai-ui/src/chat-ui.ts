@@ -1,4 +1,4 @@
-/** Cursor-style chat webview HTML (thinking, edits, terminal cards). */
+/** Rubynod chat webview — polished Cursor-style UI */
 export function getChatHtml(defaultMode: string): string {
   const nonce = String(Date.now());
   return `<!DOCTYPE html>
@@ -8,213 +8,327 @@ export function getChatHtml(defaultMode: string): string {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';" />
 <style>
   :root {
-    --rn-accent: #e74c3c;
-    --rn-muted: var(--vscode-descriptionForeground);
-    --rn-border: var(--vscode-widget-border, var(--vscode-input-border));
-    --rn-card: var(--vscode-editor-inactiveSelectionBackground);
-    --rn-user: var(--vscode-input-background);
+    --rn-accent: var(--vscode-focusBorder, #0078d4);
+    --rn-accent-soft: color-mix(in srgb, var(--rn-accent) 18%, transparent);
+    --rn-surface: var(--vscode-sideBar-background, #1e1e1e);
+    --rn-surface-2: var(--vscode-editor-background, #252526);
+    --rn-border: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
+    --rn-muted: var(--vscode-descriptionForeground, #9d9d9d);
+    --rn-text: var(--vscode-foreground, #ccc);
+    --rn-radius: 10px;
+    --rn-radius-sm: 6px;
+    --rn-shadow: 0 -4px 24px rgba(0,0,0,0.25);
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0; padding: 0;
-    font-family: var(--vscode-font-family);
-    font-size: 13px; line-height: 1.5;
-    color: var(--vscode-foreground);
-    background: var(--vscode-sideBar-background, var(--vscode-editor-background));
-    display: flex; flex-direction: column; height: 100vh;
+    font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, sans-serif);
+    font-size: 13px; line-height: 1.55;
+    color: var(--rn-text);
+    background: var(--rn-surface);
+    display: flex; flex-direction: column;
+    overflow: hidden;
   }
+
+  /* —— Header —— */
   .header {
-    padding: 8px 10px; border-bottom: 1px solid var(--rn-border);
-    display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
-  }
-  .header select, .header button {
-    font-size: 12px; padding: 4px 8px; border-radius: 6px;
-    border: 1px solid var(--rn-border);
-    background: var(--vscode-dropdown-background);
-    color: var(--vscode-dropdown-foreground); cursor: pointer;
-  }
-  .header button.primary {
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground); border: none;
-  }
-  .header button.danger { color: var(--rn-accent); }
-  #chips { padding: 4px 10px; display: flex; flex-wrap: wrap; gap: 4px; min-height: 24px; }
-  .chip {
-    font-size: 11px; padding: 2px 8px; border-radius: 10px;
-    background: var(--vscode-badge-background);
-    color: var(--vscode-badge-foreground); cursor: pointer;
-  }
-  #thread {
-    flex: 1; overflow-y: auto; padding: 12px 10px;
-    display: flex; flex-direction: column; gap: 12px;
-  }
-  .bubble-user {
-    align-self: flex-end; max-width: 92%;
-    background: var(--rn-user);
-    border: 1px solid var(--rn-border);
-    border-radius: 12px 12px 4px 12px;
-    padding: 10px 12px; white-space: pre-wrap; word-break: break-word;
-  }
-  .bubble-assistant {
-    align-self: flex-start; max-width: 100%; width: 100%;
-  }
-  .assistant-text {
-    padding: 4px 2px; white-space: pre-wrap; word-break: break-word;
-  }
-  .assistant-text code {
-    font-family: var(--vscode-editor-font-family, monospace);
-    background: var(--vscode-textCodeBlock-background);
-    padding: 1px 4px; border-radius: 3px; font-size: 12px;
-  }
-  .thinking {
+    flex-shrink: 0;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--rn-border);
     display: flex; align-items: center; gap: 8px;
-    padding: 8px 10px; color: var(--rn-muted); font-size: 12px;
+    background: var(--rn-surface-2);
   }
-  .thinking .dots span {
-    display: inline-block; width: 4px; height: 4px; border-radius: 50%;
-    background: var(--rn-muted); margin: 0 2px;
-    animation: bounce 1.2s infinite;
+  .brand {
+    font-weight: 600; font-size: 12px; letter-spacing: 0.02em;
+    color: var(--rn-text); margin-right: auto;
   }
-  .thinking .dots span:nth-child(2) { animation-delay: 0.15s; }
-  .thinking .dots span:nth-child(3) { animation-delay: 0.3s; }
-  @keyframes bounce {
-    0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
-    40% { transform: translateY(-4px); opacity: 1; }
+  .brand span { color: var(--rn-accent); }
+  .pill {
+    font-size: 11px; font-weight: 500; padding: 4px 10px;
+    border-radius: 20px; border: 1px solid var(--rn-border);
+    background: var(--rn-surface);
+    color: var(--rn-text); cursor: pointer;
   }
-  .tool-card {
+  .pill select {
+    border: none; background: transparent; color: inherit;
+    font: inherit; cursor: pointer; outline: none;
+  }
+  .icon-btn {
+    width: 28px; height: 28px; border-radius: var(--rn-radius-sm);
     border: 1px solid var(--rn-border);
-    border-radius: 8px; margin: 6px 0; overflow: hidden;
-    background: var(--vscode-editor-background);
-  }
-  .tool-card.running { border-color: var(--rn-accent); }
-  .tool-card.done { opacity: 0.95; }
-  .tool-header {
-    display: flex; align-items: center; gap: 8px;
-    padding: 8px 10px; cursor: pointer; user-select: none;
-    background: var(--rn-card); font-size: 12px;
-  }
-  .tool-header:hover { filter: brightness(1.05); }
-  .tool-icon {
-    width: 18px; height: 18px; border-radius: 4px;
+    background: var(--rn-surface);
+    color: var(--rn-muted); cursor: pointer;
     display: flex; align-items: center; justify-content: center;
-    font-size: 11px; flex-shrink: 0;
+    font-size: 14px; transition: background 0.15s, color 0.15s;
   }
-  .tool-icon.terminal { background: #2d5a27; color: #b8f0b0; }
-  .tool-icon.edit { background: #3d3a6b; color: #c4b5fd; }
-  .tool-icon.read { background: #2a3f5f; color: #93c5fd; }
-  .tool-icon.search { background: #4a3f2a; color: #fcd34d; }
-  .tool-icon.think { background: #4a3748; color: #f9a8d4; }
-  .tool-title { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .tool-status {
-    font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
-    color: var(--rn-muted);
+  .icon-btn:hover { background: var(--rn-accent-soft); color: var(--rn-text); }
+  .icon-btn.danger:hover { color: #f87171; border-color: #f87171; }
+
+  /* —— Chips —— */
+  #chips {
+    flex-shrink: 0; padding: 6px 12px 0;
+    display: flex; flex-wrap: wrap; gap: 6px;
+    min-height: 0;
   }
-  .tool-status.running { color: var(--rn-accent); }
-  .spinner {
-    width: 12px; height: 12px; border: 2px solid var(--rn-border);
-    border-top-color: var(--rn-accent); border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .tool-body {
-    display: none; padding: 8px 10px; border-top: 1px solid var(--rn-border);
-    font-family: var(--vscode-editor-font-family, monospace);
-    font-size: 11px; max-height: 200px; overflow: auto;
-    white-space: pre-wrap; word-break: break-all;
-    color: var(--vscode-terminal-ansiBrightWhite, var(--vscode-foreground));
-    background: var(--vscode-terminal-background, #1e1e1e);
-  }
-  .tool-card.expanded .tool-body { display: block; }
-  .footer {
-    border-top: 1px solid var(--rn-border); padding: 8px 10px;
-    display: flex; flex-direction: column; gap: 6px;
-  }
-  #status {
-    font-size: 11px; color: var(--rn-muted); min-height: 14px;
-    display: flex; align-items: center; gap: 6px;
-  }
-  #input-row { display: flex; gap: 8px; align-items: flex-end; }
-  #input {
-    flex: 1; min-height: 44px; max-height: 120px; resize: vertical;
-    padding: 10px 12px; border-radius: 8px;
-    border: 1px solid var(--rn-border);
-    background: var(--vscode-input-background);
-    color: var(--vscode-input-foreground);
-    font-family: inherit; font-size: 13px;
-  }
-  #input:focus { outline: 1px solid var(--rn-accent); }
-  #send-btn {
-    padding: 10px 16px; border-radius: 8px; border: none;
-    background: var(--rn-accent); color: #fff;
-    font-weight: 600; cursor: pointer; font-size: 12px;
-  }
-  #send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  #chips { padding: 4px 10px; display: flex; flex-wrap: wrap; gap: 4px; min-height: 8px; }
+  #chips:empty { display: none; }
   .chip {
-    font-size: 11px; padding: 3px 8px; border-radius: 10px;
-    background: var(--vscode-badge-background);
-    color: var(--vscode-badge-foreground);
-    display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
+    font-size: 11px; padding: 3px 8px 3px 10px;
+    border-radius: 20px;
+    background: var(--rn-accent-soft);
+    border: 1px solid var(--rn-border);
+    color: var(--rn-text);
+    display: inline-flex; align-items: center; gap: 6px;
+    cursor: pointer; max-width: 200px;
+    transition: border-color 0.15s;
   }
-  .chip.file { border-left: 2px solid #93c5fd; }
-  .chip.folder { border-left: 2px solid #fcd34d; }
-  .chip .x { opacity: 0.7; margin-left: 2px; }
-  .chip .x:hover { opacity: 1; color: var(--rn-accent); }
+  .chip:hover { border-color: var(--rn-accent); }
+  .chip .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip .x {
+    opacity: 0.6; font-size: 14px; line-height: 1;
+    padding: 0 2px; border-radius: 4px;
+  }
+  .chip .x:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+
+  /* —— Mentions —— */
   #mention-box {
-    display: none; position: relative; margin: 0 10px;
-    border: 1px solid var(--rn-border); border-radius: 8px;
-    background: var(--vscode-editor-background);
-    max-height: 160px; overflow-y: auto; font-size: 12px;
+    display: none; flex-shrink: 0;
+    margin: 6px 12px 0; border: 1px solid var(--rn-border);
+    border-radius: var(--rn-radius);
+    background: var(--rn-surface-2);
+    max-height: 180px; overflow-y: auto;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
   }
   #mention-box.visible { display: block; }
   .mention-item {
-    padding: 6px 10px; cursor: pointer;
+    padding: 8px 12px; cursor: pointer;
     border-bottom: 1px solid var(--rn-border);
+    display: flex; flex-direction: column; gap: 2px;
   }
-  .mention-item:hover, .mention-item.active { background: var(--vscode-list-hoverBackground); }
+  .mention-item:last-child { border-bottom: none; }
+  .mention-item:hover, .mention-item.active {
+    background: var(--vscode-list-activeSelectionBackground, var(--rn-accent-soft));
+  }
+  .mention-item .name { font-weight: 500; font-size: 12px; }
   .mention-item .desc { font-size: 10px; color: var(--rn-muted); }
+
+  /* —— Thread —— */
+  #thread {
+    flex: 1; overflow-y: auto; overflow-x: hidden;
+    padding: 16px 12px 8px;
+    display: flex; flex-direction: column; gap: 16px;
+    scroll-behavior: smooth;
+  }
+  .empty-state {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center; padding: 24px 16px; gap: 8px;
+    color: var(--rn-muted);
+  }
+  .empty-state h2 {
+    margin: 0; font-size: 15px; font-weight: 600; color: var(--rn-text);
+  }
+  .empty-state p { margin: 0; font-size: 12px; max-width: 260px; line-height: 1.5; }
+  .kbd {
+    display: inline-block; padding: 2px 6px; border-radius: 4px;
+    background: var(--rn-surface-2); border: 1px solid var(--rn-border);
+    font-size: 10px; font-family: inherit;
+  }
+
+  .bubble-user {
+    align-self: flex-end; max-width: 88%;
+    background: linear-gradient(135deg, var(--rn-accent-soft), transparent);
+    border: 1px solid var(--rn-border);
+    border-right: 2px solid var(--rn-accent);
+    border-radius: var(--rn-radius) var(--rn-radius) 4px var(--rn-radius);
+    padding: 10px 14px;
+    white-space: pre-wrap; word-break: break-word;
+    font-size: 13px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  }
+  .bubble-assistant { align-self: stretch; width: 100%; }
+  .assistant-text {
+    padding: 2px 4px; white-space: pre-wrap; word-break: break-word;
+    font-size: 13px; line-height: 1.6;
+  }
+  .assistant-text code {
+    font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,0.2));
+    padding: 2px 5px; border-radius: 4px; font-size: 12px;
+  }
+
+  .thinking {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-radius: var(--rn-radius);
+    background: var(--rn-surface-2);
+    border: 1px solid var(--rn-border);
+    color: var(--rn-muted); font-size: 12px;
+  }
+  .thinking .dots { display: flex; gap: 4px; }
+  .thinking .dots span {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--rn-accent);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .thinking .dots span:nth-child(2) { animation-delay: 0.15s; }
+  .thinking .dots span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.35; transform: scale(0.85); }
+    50% { opacity: 1; transform: scale(1); }
+  }
+
+  .tool-card {
+    border: 1px solid var(--rn-border);
+    border-radius: var(--rn-radius);
+    margin: 8px 0; overflow: hidden;
+    background: var(--rn-surface-2);
+    transition: border-color 0.2s;
+  }
+  .tool-card.running { border-color: var(--rn-accent); box-shadow: 0 0 0 1px var(--rn-accent-soft); }
+  .tool-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; cursor: pointer; user-select: none;
+    font-size: 12px;
+  }
+  .tool-header:hover { background: var(--rn-accent-soft); }
+  .tool-icon {
+    width: 22px; height: 22px; border-radius: var(--rn-radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; flex-shrink: 0; font-weight: 600;
+  }
+  .tool-icon.terminal { background: #1a3d1a; color: #86efac; }
+  .tool-icon.edit { background: #2e2a5c; color: #c4b5fd; }
+  .tool-icon.read { background: #1e3a5f; color: #93c5fd; }
+  .tool-icon.search { background: #3d3420; color: #fcd34d; }
+  .tool-icon.think { background: #3d2a38; color: #f9a8d4; }
+  .tool-title { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tool-status { font-size: 10px; color: var(--rn-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .tool-status.running { color: var(--rn-accent); }
+  .tool-body {
+    display: none; padding: 10px 12px;
+    border-top: 1px solid var(--rn-border);
+    font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+    font-size: 11px; line-height: 1.45;
+    max-height: 180px; overflow: auto;
+    white-space: pre-wrap; word-break: break-all;
+    background: var(--vscode-terminal-background, #0d0d0d);
+    color: var(--vscode-terminal-foreground, #d4d4d4);
+  }
+  .tool-card.expanded .tool-body { display: block; }
+
+  /* —— Composer —— */
+  .composer {
+    flex-shrink: 0;
+    padding: 10px 12px 12px;
+    background: var(--rn-surface-2);
+    border-top: 1px solid var(--rn-border);
+    box-shadow: var(--rn-shadow);
+  }
+  #status {
+    font-size: 11px; color: var(--rn-muted);
+    min-height: 16px; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .composer-box {
+    display: flex; flex-direction: column; gap: 8px;
+    border: 1px solid var(--rn-border);
+    border-radius: var(--rn-radius);
+    background: var(--rn-surface);
+    padding: 8px 8px 8px 12px;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .composer-box:focus-within {
+    border-color: var(--rn-accent);
+    box-shadow: 0 0 0 1px var(--rn-accent-soft);
+  }
+  #input {
+    width: 100%; min-height: 40px; max-height: 140px;
+    resize: none; border: none; background: transparent;
+    color: var(--rn-text); font-family: inherit;
+    font-size: 13px; line-height: 1.5; outline: none;
+    padding: 4px 0;
+  }
+  #input::placeholder { color: var(--rn-muted); }
+  .composer-actions {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .hint { font-size: 10px; color: var(--rn-muted); }
+  #send-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 16px; border-radius: var(--rn-radius-sm);
+    border: none; cursor: pointer;
+    background: var(--vscode-button-background, var(--rn-accent));
+    color: var(--vscode-button-foreground, #fff);
+    font-size: 12px; font-weight: 600;
+    transition: opacity 0.15s, transform 0.1s;
+  }
+  #send-btn:hover:not(:disabled) { filter: brightness(1.08); }
+  #send-btn:active:not(:disabled) { transform: scale(0.98); }
+  #send-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .spinner {
+    width: 12px; height: 12px; border: 2px solid var(--rn-border);
+    border-top-color: var(--rn-accent); border-radius: 50%;
+    animation: spin 0.65s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
   <div class="header">
-    <select id="mode">
-      <option value="agent"${defaultMode === 'agent' ? ' selected' : ''}>∞ Agent</option>
-      <option value="plan"${defaultMode === 'plan' ? ' selected' : ''}>Plan</option>
-      <option value="ask"${defaultMode === 'ask' ? ' selected' : ''}>Ask</option>
-      <option value="debug"${defaultMode === 'debug' ? ' selected' : ''}>Debug</option>
-    </select>
-    <button id="ctx-btn">@</button>
-    <button id="stop-btn" class="danger">Stop</button>
+    <div class="brand">Ruby<span>nod</span></div>
+    <div class="pill">
+      <select id="mode" title="Mode">
+        <option value="agent"${defaultMode === 'agent' ? ' selected' : ''}>Agent</option>
+        <option value="plan"${defaultMode === 'plan' ? ' selected' : ''}>Plan</option>
+        <option value="ask"${defaultMode === 'ask' ? ' selected' : ''}>Ask</option>
+        <option value="debug"${defaultMode === 'debug' ? ' selected' : ''}>Debug</option>
+      </select>
+    </div>
+    <button class="icon-btn" id="ctx-btn" title="Add context (@)">@</button>
+    <button class="icon-btn danger" id="stop-btn" title="Stop">■</button>
   </div>
   <div id="chips"></div>
   <div id="mention-box"></div>
-  <div id="thread"></div>
-  <div class="footer">
+  <div id="thread">
+    <div class="empty-state" id="empty">
+      <h2>What can I help you build?</h2>
+      <p>Ask anything about your code. Use <span class="kbd">@file</span> for context. <span class="kbd">Enter</span> to send.</p>
+    </div>
+  </div>
+  <div class="composer">
     <div id="status"></div>
-    <div id="input-row">
-      <textarea id="input" rows="2" placeholder="Ask Rubynod… @file.ts @folder:src/ — Ctrl/Cmd+Enter"></textarea>
-      <button id="send-btn">Send</button>
+    <div class="composer-box">
+      <textarea id="input" rows="2" placeholder="Ask Rubynod…"></textarea>
+      <div class="composer-actions">
+        <span class="hint"><span class="kbd">Enter</span> send · <span class="kbd">Shift+Enter</span> new line</span>
+        <button id="send-btn" type="button">Send ↑</button>
+      </div>
     </div>
   </div>
 <script nonce="${nonce}">
 (function() {
   const vscode = acquireVsCodeApi();
   const thread = document.getElementById('thread');
+  const emptyEl = document.getElementById('empty');
   const input = document.getElementById('input');
   const statusEl = document.getElementById('status');
   const sendBtn = document.getElementById('send-btn');
   const chips = document.getElementById('chips');
   const mentionBox = document.getElementById('mention-box');
+
   let mentionActive = -1;
   let mentionItems = [];
-
   let state = { running: false, assistantEl: null, thinkingEl: null, toolCards: {} };
+
+  function hideEmpty() {
+    if (emptyEl && emptyEl.parentNode) emptyEl.remove();
+  }
 
   function getAtQuery() {
     const val = input.value;
-    const pos = input.selectionStart || val.length;
+    const pos = input.selectionStart ?? val.length;
     const before = val.slice(0, pos);
-    const m = before.match(/@([^\s@]*)$/);
+    const m = before.match(/@([^\\s@]*)$/);
     return m ? m[1] : null;
   }
 
@@ -227,49 +341,65 @@ export function getChatHtml(defaultMode: string): string {
 
   function showMentions(list) {
     mentionItems = list;
-    mentionActive = 0;
+    mentionActive = list.length ? 0 : -1;
     if (!list.length) { hideMentions(); return; }
-    mentionBox.innerHTML = list.map((it, i) =>
-      '<div class="mention-item' + (i === 0 ? ' active' : '') + '" data-i="' + i + '">' +
-      '<div>' + (it.kind === 'folder' ? '📁 ' : '📄 ') + it.label + '</div>' +
-      '<div class="desc">' + (it.description || '') + '</div></div>'
-    ).join('');
+    mentionBox.innerHTML = list.map((it, i) => {
+      const icon = it.kind === 'folder' ? '📁' : it.kind === 'symbol' ? '◇' : '📄';
+      return '<div class="mention-item' + (i === 0 ? ' active' : '') + '" data-i="' + i + '">' +
+        '<span class="name">' + icon + ' ' + escapeHtml(it.label) + '</span>' +
+        (it.description ? '<span class="desc">' + escapeHtml(it.description) + '</span>' : '') +
+        '</div>';
+    }).join('');
     mentionBox.classList.add('visible');
     mentionBox.querySelectorAll('.mention-item').forEach(el => {
       el.onclick = () => pickMention(parseInt(el.dataset.i, 10));
     });
   }
 
+  function escapeHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
   function pickMention(idx) {
     const it = mentionItems[idx];
     if (!it) return;
     const val = input.value;
-    const pos = input.selectionStart || val.length;
+    const pos = input.selectionStart ?? val.length;
     const before = val.slice(0, pos);
     const after = val.slice(pos);
-    const replaced = before.replace(/@([^\s@]*)$/, it.kind === 'folder' ? '@folder:' + it.path + ' ' : '@' + it.path + ' ');
-    input.value = replaced + after;
+    const insert = it.kind === 'folder' ? '@folder:' + it.path + ' ' : '@' + it.path + ' ';
+    input.value = before.replace(/@([^\\s@]*)$/, insert) + after;
     hideMentions();
+    input.focus();
     vscode.postMessage({ type: 'pickMention', query: it.kind === 'folder' ? 'folder:' + it.path : it.path });
+  }
+
+  function highlightMention() {
+    mentionBox.querySelectorAll('.mention-item').forEach((el, i) => {
+      el.classList.toggle('active', i === mentionActive);
+    });
   }
 
   input.addEventListener('input', () => {
     const q = getAtQuery();
     if (q !== null) vscode.postMessage({ type: 'atQuery', query: q });
     else hideMentions();
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 140) + 'px';
   });
+
   input.addEventListener('keydown', e => {
-    if (!mentionBox.classList.contains('visible')) return;
-    if (e.key === 'ArrowDown') { e.preventDefault(); mentionActive = Math.min(mentionActive + 1, mentionItems.length - 1); highlightMention(); }
-    if (e.key === 'ArrowUp') { e.preventDefault(); mentionActive = Math.max(mentionActive - 1, 0); highlightMention(); }
-    if (e.key === 'Enter' && mentionActive >= 0) { e.preventDefault(); pickMention(mentionActive); }
-    if (e.key === 'Escape') hideMentions();
+    if (mentionBox.classList.contains('visible')) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); mentionActive = Math.min(mentionActive + 1, mentionItems.length - 1); highlightMention(); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); mentionActive = Math.max(mentionActive - 1, 0); highlightMention(); return; }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (mentionActive >= 0) pickMention(mentionActive); return; }
+      if (e.key === 'Escape') { e.preventDefault(); hideMentions(); return; }
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
   });
-  function highlightMention() {
-    mentionBox.querySelectorAll('.mention-item').forEach((el, i) => {
-      el.classList.toggle('active', i === mentionActive);
-    });
-  }
 
   function toolKind(name) {
     if (name === 'run_terminal' || name === 'Shell') return 'terminal';
@@ -280,24 +410,25 @@ export function getChatHtml(defaultMode: string): string {
   }
 
   function toolLabel(name, args) {
-    if (name === 'run_terminal' || name === 'Shell') return args.command || 'Run command';
-    if (name === 'write_file') return 'Create ' + (args.path || 'file');
+    args = args || {};
+    if (name === 'run_terminal' || name === 'Shell') return args.command || 'Terminal';
+    if (name === 'write_file') return 'Write ' + (args.path || 'file');
     if (name === 'search_replace') return 'Edit ' + (args.path || 'file');
     if (name === 'read_file') return 'Read ' + (args.path || 'file');
-    if (name === 'grep') return 'Search: ' + (args.pattern || '');
-    if (name === 'glob') return 'Find: ' + (args.pattern || '');
-    if (name === 'codebase_search') return 'Codebase: ' + (args.query || '');
+    if (name === 'grep') return 'Grep: ' + (args.pattern || '');
+    if (name === 'glob') return 'Glob: ' + (args.pattern || '');
+    if (name === 'codebase_search') return 'Search: ' + (args.query || '');
     return name;
   }
 
   function iconChar(kind) {
-    return { terminal: '$', edit: '✎', read: '↳', search: '⌕', think: '◆' }[kind] || '◆';
+    return { terminal: '$_', edit: '✎', read: '↳', search: '⌕', think: '◆' }[kind] || '◆';
   }
 
   function setStatus(text, running) {
     statusEl.innerHTML = running
-      ? '<span class="spinner"></span><span>' + text + '</span>'
-      : (text || '');
+      ? '<span class="spinner"></span><span>' + escapeHtml(text) + '</span>'
+      : (text ? escapeHtml(text) : '');
     sendBtn.disabled = running;
     state.running = running;
   }
@@ -308,9 +439,10 @@ export function getChatHtml(defaultMode: string): string {
 
   function showThinking(label) {
     hideThinking();
+    hideEmpty();
     const el = document.createElement('div');
     el.className = 'thinking';
-    el.innerHTML = '<span class="dots"><span></span><span></span><span></span></span><span>' + (label || 'Thinking') + '…</span>';
+    el.innerHTML = '<span class="dots"><span></span><span></span><span></span></span><span>' + escapeHtml(label || 'Thinking') + '…</span>';
     state.thinkingEl = el;
     thread.appendChild(el);
     scroll();
@@ -321,6 +453,7 @@ export function getChatHtml(defaultMode: string): string {
   function ensureAssistant() {
     hideThinking();
     if (!state.assistantEl) {
+      hideEmpty();
       const wrap = document.createElement('div');
       wrap.className = 'bubble-assistant';
       const text = document.createElement('div');
@@ -333,6 +466,7 @@ export function getChatHtml(defaultMode: string): string {
   }
 
   function appendUser(text) {
+    hideEmpty();
     state.assistantEl = null;
     const el = document.createElement('div');
     el.className = 'bubble-user';
@@ -354,25 +488,21 @@ export function getChatHtml(defaultMode: string): string {
     const card = document.createElement('div');
     card.className = 'tool-card running expanded';
     card.dataset.id = id;
-    const title = toolLabel(name, args || {});
     card.innerHTML =
       '<div class="tool-header">' +
         '<span class="tool-icon ' + kind + '">' + iconChar(kind) + '</span>' +
-        '<span class="tool-title"></span>' +
+        '<span class="tool-title">' + escapeHtml(toolLabel(name, args)) + '</span>' +
         '<span class="tool-status running"><span class="spinner"></span></span>' +
       '</div>' +
       '<div class="tool-body"></div>';
-    card.querySelector('.tool-title').textContent = title;
     const body = card.querySelector('.tool-body');
-    if (kind === 'terminal' && args.command) body.textContent = '$ ' + args.command;
-    else if (kind === 'edit' && args.path) body.textContent = args.path;
-  else body.textContent = JSON.stringify(args, null, 2).slice(0, 500);
+    if (kind === 'terminal' && args && args.command) body.textContent = '$ ' + args.command;
+    else if (args && args.path) body.textContent = args.path;
+    else if (args) body.textContent = JSON.stringify(args, null, 2).slice(0, 800);
     card.querySelector('.tool-header').onclick = () => card.classList.toggle('expanded');
     thread.appendChild(card);
     state.toolCards[id] = card;
-    if (kind === 'terminal') setStatus('Running terminal…', true);
-    else if (kind === 'edit') setStatus('Editing files…', true);
-    else setStatus('Working…', true);
+    setStatus(kind === 'terminal' ? 'Running command…' : 'Working…', true);
     scroll();
   }
 
@@ -380,38 +510,30 @@ export function getChatHtml(defaultMode: string): string {
     const card = state.toolCards[id];
     if (!card) return;
     card.classList.remove('running');
-    card.classList.add('done');
     const status = card.querySelector('.tool-status');
     status.className = 'tool-status';
     status.textContent = ok === false ? 'Failed' : 'Done';
     const body = card.querySelector('.tool-body');
-    const preview = (result || '').slice(0, 4000);
-    if (preview) body.textContent = preview;
+    if (result) body.textContent = String(result).slice(0, 4000);
     scroll();
   }
 
-  function onDiff(file) {
-    const cards = Object.values(state.toolCards);
-    const last = cards[cards.length - 1];
-    if (last) {
-      const t = last.querySelector('.tool-title');
-      if (t) t.textContent = 'Edited ' + file;
-    }
+  function send() {
+    const text = input.value.trim();
+    if (!text) return;
+    if (state.running) return;
+    hideMentions();
+    const mode = document.getElementById('mode').value;
+    appendUser(text);
+    input.value = '';
+    input.style.height = 'auto';
+    setStatus('Sending…', true);
+    vscode.postMessage({ type: 'send', text, mode });
   }
 
   document.getElementById('send-btn').onclick = send;
   document.getElementById('ctx-btn').onclick = () => vscode.postMessage({ type: 'addContext' });
   document.getElementById('stop-btn').onclick = () => vscode.postMessage({ type: 'stop' });
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
-  });
-
-  function send() {
-    const text = input.value.trim();
-    if (!text || state.running) return;
-    input.value = '';
-    vscode.postMessage({ type: 'send', text, mode: document.getElementById('mode').value });
-  }
 
   window.addEventListener('message', e => {
     const m = e.data;
@@ -422,7 +544,6 @@ export function getChatHtml(defaultMode: string): string {
         setStatus('Agent running…', true);
         break;
       case 'user':
-        appendUser(m.text);
         break;
       case 'text':
         appendText(m.text);
@@ -435,7 +556,6 @@ export function getChatHtml(defaultMode: string): string {
         endTool(m.id, m.name, m.result, m.ok);
         break;
       case 'diff':
-        onDiff(m.file);
         break;
       case 'runEnd':
         hideThinking();
@@ -444,30 +564,32 @@ export function getChatHtml(defaultMode: string): string {
         break;
       case 'error':
         hideThinking();
-        appendText('\n\n⚠ ' + m.message);
+        ensureAssistant();
+        appendText('\\n\\n⚠ ' + (m.message || 'Error'));
         setStatus('', false);
+        state.running = false;
+        sendBtn.disabled = false;
         break;
       case 'atSuggestions':
         showMentions(m.suggestions || []);
         break;
       case 'chips':
-        chips.innerHTML = (m.items || []).map(it => {
-          const cls = 'chip ' + (it.type || 'file');
-          const icon = it.type === 'folder' ? '📁' : '📄';
-          return '<span class="' + cls + '" data-label="' + (it.label||'').replace(/"/g,'') + '" data-path="' + (it.path||'').replace(/"/g,'') + '" data-line="' + (it.startLine||'') + '">' +
-            icon + ' ' + it.label + ' <span class="x">×</span></span>';
-        }).join('');
+        chips.innerHTML = (m.items || []).map(it =>
+          '<span class="chip" data-label="' + escapeHtml(it.label||'') + '" data-path="' + escapeHtml(it.path||'') + '" data-line="' + (it.startLine||'') + '">' +
+          '<span class="label">' + escapeHtml(it.label) + '</span><span class="x">×</span></span>'
+        ).join('');
         chips.querySelectorAll('.chip').forEach(el => {
           el.querySelector('.x').onclick = (e) => { e.stopPropagation(); vscode.postMessage({ type: 'removeChip', label: el.dataset.label }); };
           el.onclick = (e) => {
             if (e.target.classList.contains('x')) return;
-            if (el.dataset.path) vscode.postMessage({ type: 'openChip', path: el.dataset.path, startLine: el.dataset.line ? parseInt(el.dataset.line,10) : undefined });
+            vscode.postMessage({ type: 'openChip', path: el.dataset.path, startLine: el.dataset.line ? parseInt(el.dataset.line,10) : undefined });
           };
         });
         break;
       case 'clear':
-        thread.innerHTML = '';
+        thread.innerHTML = '<div class="empty-state" id="empty"><h2>What can I help you build?</h2><p>Ask anything about your code.</p></div>';
         state = { running: false, assistantEl: null, thinkingEl: null, toolCards: {} };
+        sendBtn.disabled = false;
         break;
     }
   });

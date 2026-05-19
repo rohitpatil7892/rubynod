@@ -31,11 +31,16 @@ rubynod/
 
 ### 1. Install dependencies
 
+Use **Node 20 or 22** (not broken Homebrew `node@25` with simdjson errors):
+
 ```bash
+export PATH="/opt/homebrew/opt/node@22/bin:$PATH"   # add to ~/.zshrc
 cd rubynod
 npm install
 npm run build
 ```
+
+Or install the packaged extension: `npm run package:ext && npm run install:ext`
 
 ### 2. Start AI service
 

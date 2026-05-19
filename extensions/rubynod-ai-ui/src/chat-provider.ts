@@ -106,8 +106,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.addAttachments(items);
       return;
     }
-    if (msg.type === 'stop' && this.threadId) {
-      await cancelAgent(this.threadId);
+    if (msg.type === 'stop') {
+      if (this.threadId) await cancelAgent(this.threadId).catch(() => {});
       this.running = false;
       this.post({ type: 'runEnd' });
       return;
@@ -124,29 +124,33 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.activeToolIds.clear();
     toolIdCounter = 0;
 
-    const fromMentions = await resolveParsedMentions(text);
-    const pinned = getPendingContext();
-    const active = isIncludeActiveFile() ? await getActiveEditorAttachment() : null;
-    let openFiles: ContextAttachment | null = null;
-    if (isIncludeOpenFiles()) {
-      const bridge = createIdeBridge();
-      const list = (await bridge.getOpenEditors!()) as string;
-      openFiles = { type: 'open', label: 'Open tabs', content: list };
-    }
-
-    const contextMap = new Map<string, ContextAttachment>();
-    const maxAtt = getMaxContextAttachments();
-    for (const c of [...pinned, ...fromMentions, ...(active ? [active] : []), ...(openFiles ? [openFiles] : [])]) {
-      if (contextMap.size >= maxAtt) break;
-      contextMap.set(`${c.type}:${c.label}`, c);
-    }
-    const contextItems = [...contextMap.values()];
-
-    this.post({ type: 'user', text });
     this.post({
       type: 'runStart',
       label: this.mode === 'plan' ? 'Planning' : 'Thinking',
     });
+
+    let contextItems: ContextAttachment[] = [];
+    try {
+      const fromMentions = await resolveParsedMentions(text);
+      const pinned = getPendingContext();
+      const active = isIncludeActiveFile() ? await getActiveEditorAttachment() : null;
+      let openFiles: ContextAttachment | null = null;
+      if (isIncludeOpenFiles()) {
+        const bridge = createIdeBridge();
+        const list = (await bridge.getOpenEditors!()) as string;
+        openFiles = { type: 'open', label: 'Open tabs', content: list };
+      }
+
+      const contextMap = new Map<string, ContextAttachment>();
+      const maxAtt = getMaxContextAttachments();
+      for (const c of [...pinned, ...fromMentions, ...(active ? [active] : []), ...(openFiles ? [openFiles] : [])]) {
+        if (contextMap.size >= maxAtt) break;
+        contextMap.set(`${c.type}:${c.label}`, c);
+      }
+      contextItems = [...contextMap.values()];
+    } catch {
+      contextItems = getPendingContext();
+    }
 
     try {
       for await (const event of streamAgent({
@@ -209,12 +213,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         type: 'error',
         message: `${e instanceof Error ? e.message : String(e)}\n\nStart AI service: npm run dev:ai (${getServiceUrl()})`,
       });
+    } finally {
+      this.post({ type: 'runEnd' });
+      this.running = false;
+      clearContext();
+      this.post({ type: 'chips', items: [] });
     }
-
-    this.post({ type: 'runEnd' });
-    this.running = false;
-    clearContext();
-    this.post({ type: 'chips', items: [] });
   }
 }
 
