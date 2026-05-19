@@ -1,0 +1,9 @@
+node_modules/
+dist/
+build/
+.vscode-fork/
+vscode-fork/
+*.vsix
+.env
+.rubynod/index/
+.DS_Store

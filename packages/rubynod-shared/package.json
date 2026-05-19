@@ -1,0 +1,15 @@
+{
+  "name": "@rubynod/shared",
+  "version": "0.1.0",
+  "description": "Cross-platform helpers for Rubynod (macOS, Windows, Linux)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "nameShort": "Rubynod",
+  "nameLong": "Rubynod",
+  "version": "0.1.0",
+  "applicationName": "rubynod",
+  "dataFolderName": ".rubynod",
+  "win32MutexName": "rubynod",
+  "licenseName": "MIT",
+  "licenseUrl": "https://github.com/microsoft/vscode/blob/main/LICENSE.txt",
+  "reportIssueUrl": "https://github.com/rohitpatil7892/rubynod/issues/new",
+  "updateUrl": "https://raw.githubusercontent.com/rohitpatil7892/rubynod/main/updates",
+  "downloadUrl": "https://github.com/rohitpatil7892/rubynod/releases",
+  "urlProtocol": "rubynod",
+  "extensionAllowedProposedApi": ["rubynod.rubynod-ai-ui"],
+  "builtInExtensions": [
+    {
+      "name": "rubynod-ai-ui",
+      "version": "0.1.0",
+      "repo": "https://github.com/rohitpatil7892/rubynod",
+      "metadata": {
+        "id": "rubynod.rubynod-ai-ui",
+        "publisherId": "rubynod",
+        "publisherDisplayName": "Rubynod",
+        "targetPlatform": "universal"
+      }
+    }
+  ],
+  "linkProtectionTrustedDomains": ["https://rubynod.dev"],
+  "extensionsGallery": {
+    "serviceUrl": "https://open-vsx.org/vscode/gallery",
+    "itemUrl": "https://open-vsx.org/vscode/item",
+    "resourceUrlTemplate": "https://open-vsx.org/vscode/unpkg/{publisher}/{name}/{version}/{path}"
+  },
+  "darwinBundleIdentifier": "dev.rubynod.app",
+  "darwinExecutable": "Rubynod",
+  "linuxIconName": "rubynod",
+  "linuxExecutable": "rubynod",
+  "supportedPlatforms": ["darwin", "win32", "linux"],
+  "win32AppUserModelId": "Rubynod.Rubynod",
+  "win32DirName": "Rubynod",
+  "win32NameVersion": "Rubynod",
+  "win32RegValueName": "Rubynod",
+  "win32ShellNameShort": "Rub&ynod",
+  "webviewContentExternalBaseUrlTemplate": "https://{{uuid}}.rubynod.dev/external/",
+  "quality": "stable",
+  "commit": "rubynod-dev",
+  "date": "2026-05-19",
+  "rubynodAiServicePort": 3847,
+  "rubynodAiServiceHost": "127.0.0.1"
+}

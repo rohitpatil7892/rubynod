@@ -1,0 +1,35 @@
+{
+  "name": "@rubynod/ai",
+  "version": "0.1.0",
+  "description": "Rubynod AI agent service — model router, tool loop, IPC API",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "rubynod-ai": "./dist/server.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "test": "node --test dist/**/*.test.js"
+  },
+  "dependencies": {
+    "@rubynod/index": "*",
+    "@rubynod/mcp": "*",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "openai": "^4.77.0",
+    "uuid": "^11.0.3",
+    "ws": "^8.18.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: .
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        node: ['20']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install and build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Health check AI service
+        run: node -e "const{spawn}=require('child_process');const c=spawn('node',['packages/rubynod-ai/dist/server.js'],{detached:true,stdio:'ignore'});setTimeout(async()=>{const r=await fetch('http://127.0.0.1:3847/health');if(!r.ok)process.exit(1);try{process.kill(c.pid)}catch(e){}},3000)"

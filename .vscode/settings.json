@@ -1,0 +1,20 @@
+{
+  "rubynod.models.provider": "ollama",
+  "rubynod.models.chatModel": "llama3.2",
+  "rubynod.models.baseUrl": "http://127.0.0.1:11434/v1",
+  "rubynod.ollama.autoConnect": true,
+  "rubynod.ollama.host": "http://127.0.0.1:11434",
+  "rubynod.update.githubRepo": "rohitpatil7892/rubynod",
+  "rubynod.chat.defaultMode": "agent",
+  "rubynod.chat.includeActiveFile": true,
+  "rubynod.tab.enabled": true,
+  "rubynod.agent.autoApproveTerminal": false,
+  "rubynod.agent.yoloMode": false,
+  "rubynod.index.autoIndexOnOpen": true,
+  "rubynod.index.autoIndexOnSave": true,
+  "rubynod.index.autoInjectContext": true,
+  "rubynod.index.maxAutoContextChunks": 8,
+  "rubynod.privacy.localIndexOnly": true,
+  "rubynod.privacy.privacyMode": false,
+  "rubynod.mcp.enabled": true
+}

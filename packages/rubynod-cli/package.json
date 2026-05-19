@@ -1,0 +1,19 @@
+{
+  "name": "@rubynod/cli",
+  "version": "0.1.0",
+  "description": "Rubynod CLI — headless agent runs",
+  "type": "module",
+  "bin": {
+    "rubynod": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@rubynod/ai": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}
