@@ -2,7 +2,7 @@
   "name": "rubynod-ai-ui",
   "displayName": "Rubynod AI",
   "description": "Open-source AI coding assistant: agent chat, Ollama & cloud models, file edits, diff review, @ context, indexing, inline edit & tab complete.",
-  "version": "0.1.8",
+  "version": "0.1.18",
   "publisher": "RohitPatil",
   "license": "MIT",
   "icon": "media/icon-128.png",
@@ -42,7 +42,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onView:rubynod.chatView"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -68,6 +69,10 @@
       {
         "command": "rubynod.startAiService",
         "title": "Rubynod: Start AI Service"
+      },
+      {
+        "command": "rubynod.stopAiService",
+        "title": "Rubynod: Stop AI Service"
       },
       {
         "command": "rubynod.clearChat",
@@ -197,14 +202,14 @@
         },
         "rubynod.ai.lazyStart": {
           "type": "boolean",
-          "default": true,
-          "markdownDescription": "Start the bundled AI agent on **first use** (chat, index, Cmd+K) instead of when VS Code opens. Recommended for faster startup.",
+          "default": false,
+          "markdownDescription": "When **true**, start the AI agent on first chat/index use only. When **false** (default), start automatically in the background when VS Code opens.",
           "order": 2
         },
         "rubynod.ai.inProcess": {
           "type": "boolean",
-          "default": true,
-          "markdownDescription": "Run the AI agent **inside VS Code** (recommended). No separate Node.js install required. If disabled, falls back to a child process (needs Node on PATH).",
+          "default": false,
+          "markdownDescription": "Run the AI agent inside VS Code (experimental). **Default off** — uses a child Node process (auto-detected on PATH), which is more reliable. Enable only if you do not want a separate Node process.",
           "order": 3
         },
         "rubynod.ai.nodePath": {

@@ -10,6 +10,13 @@ let initPromise: Promise<SqlJsStatic> | null = null;
 
 function resolveWasmDir(): string {
   const dirs: string[] = [];
+  const wasmDir = process.env.RUBYNOD_SQL_WASM_DIR?.trim();
+  if (wasmDir) dirs.push(wasmDir);
+  const serverRoot = process.env.RUBYNOD_SERVER_ROOT?.trim();
+  if (serverRoot) {
+    dirs.push(path.join(serverRoot, 'dist'));
+    dirs.push(path.join(serverRoot, 'node_modules', 'sql.js', 'dist'));
+  }
   try {
     dirs.push(path.join(path.dirname(require.resolve('sql.js/package.json')), 'dist'));
   } catch {

@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { getServiceUrl } from './settings';
 import {
   getBundledServerEntry,
+  getInProcessStartError,
   isInProcessServer,
   startInProcessServer,
   stopInProcessServer,
@@ -146,6 +147,8 @@ async function spawnBundledServer(extensionPath: string): Promise<boolean> {
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
+    // Survive extension-host reloads (Developer: Reload Window) so port 3847 stays up.
+    detached: process.platform !== 'win32',
   });
 
   serverProcess.stdout?.on('data', (buf: Buffer) => {
@@ -162,6 +165,10 @@ async function spawnBundledServer(extensionPath: string): Promise<boolean> {
     log(`AI service process error: ${err.message}`);
     serverProcess = undefined;
   });
+  if (serverProcess.pid) {
+    log(`AI service PID ${serverProcess.pid} (survives window reload)`);
+  }
+  serverProcess.unref();
 
   return waitForHealthy();
 }
@@ -182,6 +189,7 @@ async function startFromRepoFallback(): Promise<boolean> {
     env: { ...process.env, RUBYNOD_AI_PORT: port, RUBYNOD_AI_HOST: '127.0.0.1' },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
+    detached: process.platform !== 'win32',
   });
   serverProcess.stdout?.on('data', (buf: Buffer) => {
     for (const line of buf.toString().split('\n').filter(Boolean)) log(`[stdout] ${line}`);
@@ -192,6 +200,7 @@ async function startFromRepoFallback(): Promise<boolean> {
   serverProcess.on('exit', () => {
     serverProcess = undefined;
   });
+  serverProcess.unref();
 
   return waitForHealthy();
 }
@@ -201,17 +210,25 @@ async function startFromRepoFallback(): Promise<boolean> {
  * Phase 2: in-process (default) → child-process bundle → monorepo dev fallback.
  */
 export async function ensureAiServiceStarted(extensionPath: string): Promise<boolean> {
-  if (await isAiServiceHealthy()) return true;
+  if (await isAiServiceHealthy()) {
+    log(`Reusing AI service already listening at ${getServiceUrl()}`);
+    return true;
+  }
   if (startingPromise) return startingPromise;
 
   const useInProcess = vscode.workspace
     .getConfiguration('rubynod')
-    .get<boolean>('ai.inProcess', true);
+    .get<boolean>('ai.inProcess', false);
 
   startingPromise = (async () => {
     if (useInProcess && getBundledServerEntry(extensionPath)) {
       if (await startInProcess(extensionPath)) return true;
-      log('Falling back to child-process server start…');
+      const detail = getInProcessStartError();
+      log(
+        detail
+          ? `In-process start failed:\n${detail}\nFalling back to child-process server start…`
+          : 'In-process start failed. Falling back to child-process server start…'
+      );
     }
     if (await spawnBundledServer(extensionPath)) return true;
     if (await startFromRepoFallback()) return true;

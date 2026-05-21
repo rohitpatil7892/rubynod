@@ -1,7 +1,7 @@
 {
   "nameShort": "Rubynod",
   "nameLong": "Rubynod",
-  "version": "0.1.8",
+  "version": "0.1.18",
   "applicationName": "rubynod",
   "dataFolderName": ".rubynod",
   "win32MutexName": "rubynod",

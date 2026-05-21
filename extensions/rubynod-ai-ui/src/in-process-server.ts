@@ -2,6 +2,18 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+/**
+ * TS with `"module": "commonjs"` compiles `import(url)` to `require(url)`, which fails
+ * for file:// ESM bundles in the VS Code extension host. Use native dynamic import().
+ */
+async function importEsmModule<T>(specifier: string): Promise<T> {
+  const dynamicImport = new Function(
+    'specifier',
+    'return import(specifier)'
+  ) as (s: string) => Promise<T>;
+  return dynamicImport(specifier);
+}
+
 type ServerModule = {
   startRubynodServer: (opts?: { port?: number; host?: string }) => Promise<unknown>;
   stopRubynodServer: () => Promise<void>;
@@ -9,6 +21,11 @@ type ServerModule = {
 
 let serverModule: ServerModule | undefined;
 let inProcess = false;
+let lastStartError: string | undefined;
+
+export function getInProcessStartError(): string | undefined {
+  return lastStartError;
+}
 
 export function isInProcessServer(): boolean {
   return inProcess;
@@ -28,15 +45,21 @@ export async function startInProcessServer(
   host = '127.0.0.1'
 ): Promise<boolean> {
   const entry = getBundledServerEntry(extensionPath);
-  if (!entry) return false;
+  if (!entry) {
+    lastStartError = 'Bundled server entry not found (reinstall extension or run bundle:server)';
+    return false;
+  }
 
   try {
+    const serverDir = path.join(extensionPath, 'server');
+    process.env.RUBYNOD_SERVER_ROOT = serverDir;
+    process.env.RUBYNOD_SQL_WASM_DIR = path.join(serverDir, 'dist');
+
     if (!serverModule) {
-      const serverDir = path.join(extensionPath, 'server');
       const prevCwd = process.cwd();
       try {
         process.chdir(serverDir);
-        serverModule = (await import(pathToFileURL(entry).href)) as ServerModule;
+        serverModule = await importEsmModule<ServerModule>(pathToFileURL(entry).href);
       } finally {
         process.chdir(prevCwd);
       }
@@ -47,11 +70,13 @@ export async function startInProcessServer(
 
     await serverModule.startRubynodServer({ port, host });
     inProcess = true;
+    lastStartError = undefined;
     return true;
   } catch (err) {
     serverModule = undefined;
     inProcess = false;
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    lastStartError = msg;
     console.error('[rubynod-ai-ui] in-process server failed:', msg);
     return false;
   }

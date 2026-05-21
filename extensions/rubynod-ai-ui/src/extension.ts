@@ -35,15 +35,62 @@ function findDuplicateRubynodExtensions(selfId: string): string[] {
     .map((ext) => ext.id);
 }
 
+function compareSemver(a: string, b: string): number {
+  const parse = (v: string) => v.split('.').map((x) => parseInt(x, 10) || 0);
+  const pa = parse(a);
+  const pb = parse(b);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
+/** When several Rubynod copies are installed, only the newest version should activate. */
+function isNewestRubynodCopy(selfId: string, selfVersion: string): boolean {
+  const duplicates = findDuplicateRubynodExtensions(selfId);
+  if (duplicates.length === 0) return true;
+  const versionOf = (id: string) =>
+    String(vscode.extensions.getExtension(id)?.packageJSON?.version ?? '0.0.0');
+  let newestId = selfId;
+  let newestVer = selfVersion;
+  for (const id of duplicates) {
+    const v = versionOf(id);
+    if (compareSemver(v, newestVer) > 0) {
+      newestId = id;
+      newestVer = v;
+    }
+  }
+  return newestId === selfId;
+}
+
+function warmStartAiInBackground(): void {
+  void (async () => {
+    const ok = await ensureRubynodReady();
+    if (!ok) {
+      console.warn('[rubynod-ai-ui] Background AI start failed — see Output → Rubynod AI Service');
+    }
+    await getChatProviderRef()?.refreshPanel();
+  })();
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  const selfVersion = String(context.extension.packageJSON.version ?? '0.0.0');
+  console.log(`[rubynod-ai-ui] activate v${selfVersion}`);
   const duplicates = findDuplicateRubynodExtensions(context.extension.id);
-  if (duplicates.length > 0) {
-    const list = duplicates.join(', ');
-    void vscode.window.showErrorMessage(
-      `Rubynod AI is loaded twice (${list} and ${context.extension.id}). ` +
-        'Disable or uninstall one copy in Extensions — usually Marketplace vs "extensionDevelopmentPath".'
+
+  if (duplicates.length > 0 && !isNewestRubynodCopy(context.extension.id, selfVersion)) {
+    console.warn(
+      `[rubynod-ai-ui] Skipping activate for v${selfVersion} — newer duplicate is installed.`
     );
     return;
+  }
+
+  if (duplicates.length > 0) {
+    void vscode.window.showWarningMessage(
+      `Multiple Rubynod AI extensions detected (${duplicates.join(', ')}). ` +
+        `Using v${selfVersion}. Uninstall older copies in Extensions.`
+    );
   }
 
   attachTerminalListener();
@@ -51,22 +98,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const bridgePort = await startBridgeServer();
   configureRubynod(context.extensionPath, bridgePort);
 
-  if (!isLazyStart()) {
-    const aiReady = await ensureRubynodReady();
-    if (!aiReady) {
-      void vscode.window.showInformationMessage(
-        'Rubynod: could not start the AI agent. Cmd+Shift+P → Rubynod: Start AI Service. For local models, run Ollama (ollama serve).'
-      );
-    }
-  }
-
   chatProvider = new ChatViewProvider(context.extensionUri, context);
   setChatProviderRef(chatProvider);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chatProvider, {
-      webviewOptions: { retainContextWhenHidden: true },
+      // false = reload webview after extension update so status/models messages are not lost
+      webviewOptions: { retainContextWhenHidden: false },
     })
   );
+
+  if (!isLazyStart()) {
+    warmStartAiInBackground();
+  }
+
+  setTimeout(() => void getChatProviderRef()?.refreshPanel(), 1500);
+  setTimeout(() => void getChatProviderRef()?.refreshPanel(), 5000);
 
   registerTabAutocomplete(context);
 
@@ -101,6 +147,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('rubynod.startAiService', () =>
       startAiService(context.extensionPath)
     ),
+    vscode.commands.registerCommand('rubynod.stopAiService', () => stopAiService()),
     vscode.commands.registerCommand('rubynod.openSettings', () => {
       vscode.commands.executeCommand(
         'workbench.action.openSettings',
@@ -184,5 +231,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 export function deactivate(): void {
   stopBridgeServer();
-  void stopAiService();
+  // Child AI process is detached — keep it alive across extension-host reloads.
+  // In-process mode stops with the host; explicit stop via rubynod.stopAiService.
 }

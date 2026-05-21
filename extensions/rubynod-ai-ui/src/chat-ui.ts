@@ -1,11 +1,32 @@
+/** Config baked into the webview so status/models work even if postMessage fails. */
+export interface ChatWebviewConfig {
+  serviceUrl: string;
+  ollamaHost: string;
+  providers: Array<{ id: string; label: string }>;
+}
+
 /** Rubynod chat webview */
-export function getChatHtml(defaultMode: string): string {
+export function getChatHtml(
+  defaultMode: string,
+  extensionVersion = '',
+  rn?: ChatWebviewConfig
+): string {
   const nonce = String(Date.now());
+  const ver = extensionVersion ? ` v${extensionVersion}` : '';
+  const serviceUrl = rn?.serviceUrl ?? 'http://127.0.0.1:3847';
+  const ollamaHost = rn?.ollamaHost ?? 'http://127.0.0.1:11434';
+  const rnJson = JSON.stringify(
+    rn ?? {
+      serviceUrl,
+      ollamaHost,
+      providers: [{ id: 'ollama', label: 'Ollama' }],
+    }
+  ).replace(/</g, '\\u003c');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src ${serviceUrl} ${ollamaHost} http://127.0.0.1:* http://localhost:* ws://127.0.0.1:*;" />
 <style>
   :root {
     --rn-accent: var(--vscode-focusBorder, #0078d4);
@@ -498,7 +519,8 @@ export function getChatHtml(defaultMode: string): string {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 10px;
+    gap: 8px;
+    flex-wrap: wrap;
     min-height: 22px;
     margin-bottom: 6px;
   }
@@ -533,6 +555,13 @@ export function getChatHtml(defaultMode: string): string {
     flex-shrink: 0;
   }
   .ai-status.checking .ai-status-dot { animation: pulse 1s ease-in-out infinite; }
+  .ext-version {
+    font-size: 9px;
+    color: var(--rn-muted);
+    opacity: 0.75;
+    margin-left: 6px;
+    flex-shrink: 0;
+  }
   #status {
     flex: 1;
     min-width: 0;
@@ -561,36 +590,10 @@ export function getChatHtml(defaultMode: string): string {
   .composer-input-wrap {
     padding: 10px 12px 4px;
   }
-  .composer-input-stack {
-    position: relative;
-    width: 100%;
-    min-height: 40px;
-  }
-  #input-mirror {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    overflow: hidden;
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-family: inherit;
-    font-size: 13px;
-    line-height: 1.5;
-    color: var(--rn-text);
-  }
-  #input-mirror .at-mention {
-    color: var(--rn-accent);
-    background: color-mix(in srgb, var(--rn-accent) 18%, transparent);
-    border-radius: 4px;
-    font-weight: 600;
-  }
   #input {
-    position: relative;
-    z-index: 1;
     width: 100%; min-height: 40px; max-height: 140px;
     resize: none; border: none; background: transparent;
-    color: transparent;
-    caret-color: var(--rn-text);
+    color: var(--rn-text);
     font-family: inherit;
     font-size: 13px; line-height: 1.5; outline: none;
     padding: 0;
@@ -598,11 +601,6 @@ export function getChatHtml(defaultMode: string): string {
   #input::placeholder {
     color: var(--rn-muted);
     opacity: 1;
-    -webkit-text-fill-color: var(--rn-muted);
-  }
-  #input::selection {
-    background: color-mix(in srgb, var(--rn-accent) 35%, transparent);
-    color: transparent;
   }
   .composer-toolbar {
     display: flex;
@@ -740,17 +738,15 @@ export function getChatHtml(defaultMode: string): string {
     <div id="mention-box"></div>
     <div class="composer-status-row" id="composer-status-row">
       <div id="status"></div>
-      <button type="button" id="ai-status" class="ai-status checking" title="Checking AI service…">
+      <button type="button" id="ai-status" class="ai-status checking" title="Starting Rubynod AI…">
         <span class="ai-status-dot"></span>
-        <span class="ai-status-label">…</span>
+        <span class="ai-status-label">Starting…</span>
       </button>
+      <span id="ext-version" class="ext-version" title="Extension version">${ver}</span>
     </div>
     <div class="composer-box">
       <div class="composer-input-wrap">
-        <div class="composer-input-stack">
-          <div id="input-mirror" aria-hidden="true"></div>
-          <textarea id="input" rows="2" placeholder="Ask Rubynod… (@ files · Enter send · Shift+Enter new line)"></textarea>
-        </div>
+        <textarea id="input" rows="2" placeholder="Ask Rubynod… (@ files · Enter send · Shift+Enter new line)"></textarea>
       </div>
       <div class="composer-toolbar">
         <div class="toolbar-row toolbar-row-models">
@@ -785,15 +781,29 @@ export function getChatHtml(defaultMode: string): string {
   </div>
 <script nonce="${nonce}">
 (function() {
+  try {
   const vscode = acquireVsCodeApi();
+  const RN = ${rnJson};
+  function rnFetchTimeout(ms) {
+    try {
+      if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+        return AbortSignal.timeout(ms);
+      }
+    } catch (_) {}
+    var c = new AbortController();
+    setTimeout(function() { try { c.abort(); } catch (_) {} }, ms);
+    return c.signal;
+  }
   const thread = document.getElementById('thread');
   const emptyEl = document.getElementById('empty');
   const input = document.getElementById('input');
-  const inputMirror = document.getElementById('input-mirror');
   const statusEl = document.getElementById('status');
   const composerStatusRow = document.getElementById('composer-status-row');
   const sendBtn = document.getElementById('send-btn');
   const stopBtn = document.getElementById('stop-btn');
+  let gotStatus = false;
+  let statusPoll = null;
+  let startRequested = false;
   const chips = document.getElementById('chips');
   const targets = document.getElementById('targets');
   const mentionBox = document.getElementById('mention-box');
@@ -900,7 +910,6 @@ export function getChatHtml(defaultMode: string): string {
     const models = data.models || [];
     const current = data.current || '';
     const provider = data.provider || 'ollama';
-    const showPicker = data.showPicker !== false && models.length > 0;
     const saved = vscode.getState() || {};
 
     if (providerSelect && data.providers && data.providers.length) {
@@ -921,11 +930,18 @@ export function getChatHtml(defaultMode: string): string {
         ? saved.lastModel
         : current;
     modelSelect.innerHTML = '';
-    if (!showPicker) {
-      modelSelect.style.display = 'none';
+    modelSelect.style.display = '';
+
+    if (models.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = data.error || 'No models — start Ollama or pick a cloud provider';
+      opt.disabled = true;
+      opt.selected = true;
+      modelSelect.appendChild(opt);
       return;
     }
-    modelSelect.style.display = '';
+
     models.forEach(function(name) {
       const opt = document.createElement('option');
       opt.value = name;
@@ -933,6 +949,13 @@ export function getChatHtml(defaultMode: string): string {
       if (name === pickModel) opt.selected = true;
       modelSelect.appendChild(opt);
     });
+    if (pickModel && !models.some(function(n) { return n === pickModel; })) {
+      const opt = document.createElement('option');
+      opt.value = pickModel;
+      opt.textContent = pickModel;
+      opt.selected = true;
+      modelSelect.insertBefore(opt, modelSelect.firstChild);
+    }
   }
 
   function syncModelChoice() {
@@ -956,13 +979,11 @@ export function getChatHtml(defaultMode: string): string {
     modelSelect.addEventListener('change', syncModelChoice);
   }
 
-  vscode.postMessage({ type: 'listModels' });
-
   function setAiStatus(online, checking) {
     if (!aiStatusBtn) return;
     aiStatusBtn.className = 'ai-status ' + (checking ? 'checking' : online ? 'online' : 'offline');
     const label = aiStatusBtn.querySelector('.ai-status-label');
-    if (label) label.textContent = checking ? '…' : online ? 'Online' : 'Offline';
+    if (label) label.textContent = checking ? 'Checking…' : online ? 'Online' : 'Offline';
     aiStatusBtn.title = checking
       ? 'Checking AI service…'
       : online
@@ -970,7 +991,75 @@ export function getChatHtml(defaultMode: string): string {
         : 'AI offline — click to start service';
   }
   if (aiStatusBtn) {
-    aiStatusBtn.onclick = () => vscode.postMessage({ type: 'startAiService' });
+    aiStatusBtn.onclick = function() {
+      vscode.postMessage({ type: 'startAiService' });
+      void refreshStatusDirect();
+    };
+  }
+
+  async function refreshStatusDirect() {
+    setAiStatus(false, true);
+    var base = String(RN.serviceUrl || '').replace(/\\/$/, '');
+    try {
+      var r = await fetch(base + '/health', { signal: rnFetchTimeout(5000) });
+      var online = r.ok;
+      setAiStatus(online, false);
+      gotStatus = true;
+      if (online) await loadModelsDirect();
+      else {
+        requestServerStart();
+        fillChatModels({
+          models: [],
+          provider: 'ollama',
+          providers: RN.providers,
+          showPicker: true,
+          error: 'AI offline — starting service…'
+        });
+      }
+    } catch (err) {
+      setAiStatus(false, false);
+      gotStatus = true;
+      requestServerStart();
+      fillChatModels({
+        models: [],
+        provider: 'ollama',
+        providers: RN.providers,
+        showPicker: true,
+        error: 'Cannot reach ' + base + ' — starting service… (Output → Rubynod AI Service)'
+      });
+    }
+  }
+
+  function requestServerStart() {
+    if (startRequested) return;
+    startRequested = true;
+    vscode.postMessage({ type: 'startAiService' });
+  }
+
+  async function loadModelsDirect() {
+    var base = String(RN.serviceUrl || '').replace(/\\/$/, '');
+    var host = encodeURIComponent(RN.ollamaHost || 'http://127.0.0.1:11434');
+    try {
+      var r = await fetch(base + '/ollama/models?host=' + host, { signal: rnFetchTimeout(10000) });
+      var j = await r.json();
+      var models = (j.models || []).map(function(m) { return m.name || m; }).filter(Boolean);
+      fillChatModels({
+        models: models,
+        current: j.suggested || models[0] || '',
+        provider: 'ollama',
+        providers: RN.providers,
+        showPicker: true,
+        error: models.length ? undefined : (j.error || 'No models — run: ollama pull llama3.2')
+      });
+    } catch (e) {
+      fillChatModels({
+        models: [],
+        provider: 'ollama',
+        providers: RN.providers,
+        showPicker: true,
+        error: 'Ollama not reachable at ' + (RN.ollamaHost || '127.0.0.1:11434')
+      });
+    }
   }
 
   let mentionActive = -1;
@@ -1038,10 +1127,18 @@ export function getChatHtml(defaultMode: string): string {
     mentionActive = -1;
   }
 
-  function showMentions(list) {
+  function showMentions(list, errMsg) {
     mentionItems = list;
     mentionActive = list.length ? 0 : -1;
-    if (!list.length) { hideMentions(); return; }
+    if (!list.length) {
+      if (errMsg) {
+        mentionBox.innerHTML = '<div class="mention-item"><span class="name">⚠ ' + escapeHtml(errMsg) + '</span></div>';
+        mentionBox.classList.add('visible');
+      } else {
+        hideMentions();
+      }
+      return;
+    }
     mentionBox.innerHTML = list.map((it, i) => {
       const icon = it.kind === 'folder' ? '📁' : it.kind === 'symbol' ? '◇' : '📄';
       return '<div class="mention-item' + (i === 0 ? ' active' : '') + '" data-i="' + i + '">' +
@@ -1059,21 +1156,13 @@ export function getChatHtml(defaultMode: string): string {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  /** Highlight @file, @folder:path, @name:line-range in user text and composer mirror. */
+  /** Highlight @file, @folder:path, @name:line-range in sent user messages. */
   function highlightAtMentions(text) {
     let s = escapeHtml(text);
-    s = s.replace(/@(?:folder:[^\s@]+|(?:[^\s@/]+\/)*[^\s@]+)(?::\d+(?:-\d+)?)?/g, function(m) {
+    s = s.replace(/@(?:folder:[^\\s@]+|(?:[^\\s@/]+\\/)*[^\\s@]+)(?::\\d+(?:-\\d+)?)?/g, function(m) {
       return '<span class="at-mention">' + m + '</span>';
     });
     return s;
-  }
-
-  function syncInputMirror() {
-    if (!inputMirror) return;
-    const text = input.value;
-    inputMirror.innerHTML = text ? highlightAtMentions(text) : '';
-    inputMirror.scrollTop = input.scrollTop;
-    inputMirror.scrollLeft = input.scrollLeft;
   }
 
   function rn(type, text) {
@@ -1158,7 +1247,6 @@ export function getChatHtml(defaultMode: string): string {
     input.value = before.replace(/@([^\\s@]*)$/, insert) + after;
     hideMentions();
     input.focus();
-    syncInputMirror();
     vscode.postMessage({ type: 'pickMention', query: it.kind === 'folder' ? 'folder:' + it.path : it.path });
   }
 
@@ -1170,13 +1258,14 @@ export function getChatHtml(defaultMode: string): string {
 
   input.addEventListener('input', () => {
     const q = getAtQuery();
-    if (q !== null) vscode.postMessage({ type: 'atQuery', query: q });
-    else hideMentions();
+    if (q !== null) {
+      mentionBox.innerHTML = '<div class="mention-item"><span class="name">Searching…</span></div>';
+      mentionBox.classList.add('visible');
+      vscode.postMessage({ type: 'atQuery', query: q });
+    } else hideMentions();
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 140) + 'px';
-    syncInputMirror();
   });
-  input.addEventListener('scroll', () => syncInputMirror());
 
   input.addEventListener('keydown', e => {
     if (mentionBox.classList.contains('visible')) {
@@ -1491,18 +1580,20 @@ export function getChatHtml(defaultMode: string): string {
     appendUser(text);
     input.value = '';
     input.style.height = 'auto';
-    syncInputMirror();
     setStatus('Sending…', true);
     vscode.postMessage({ type: 'send', text, mode, model, provider });
   }
 
-  document.getElementById('send-btn').onclick = send;
-  document.getElementById('ctx-btn').onclick = () => vscode.postMessage({ type: 'addContext' });
-  document.getElementById('tabs-btn').onclick = () => vscode.postMessage({ type: 'addOpenFiles' });
-  document.getElementById('checkpoint-btn').onclick = () => vscode.postMessage({ type: 'checkpoint' });
-  acceptAllBtn.onclick = () => vscode.postMessage({ type: 'acceptAll' });
-  rejectAllBtn.onclick = () => vscode.postMessage({ type: 'rejectAll' });
-  document.getElementById('stop-btn').onclick = () => vscode.postMessage({ type: 'stop' });
+  if (sendBtn) sendBtn.onclick = send;
+  const ctxBtn = document.getElementById('ctx-btn');
+  const tabsBtn = document.getElementById('tabs-btn');
+  const checkpointBtn = document.getElementById('checkpoint-btn');
+  if (ctxBtn) ctxBtn.onclick = () => vscode.postMessage({ type: 'addContext' });
+  if (tabsBtn) tabsBtn.onclick = () => vscode.postMessage({ type: 'addOpenFiles' });
+  if (checkpointBtn) checkpointBtn.onclick = () => vscode.postMessage({ type: 'checkpoint' });
+  if (acceptAllBtn) acceptAllBtn.onclick = () => vscode.postMessage({ type: 'acceptAll' });
+  if (rejectAllBtn) rejectAllBtn.onclick = () => vscode.postMessage({ type: 'rejectAll' });
+  if (stopBtn) stopBtn.onclick = () => vscode.postMessage({ type: 'stop' });
 
   window.addEventListener('message', e => {
     const m = e.data;
@@ -1546,8 +1637,11 @@ export function getChatHtml(defaultMode: string): string {
         renderTargets(m.files || []);
         break;
       case 'aiStatus':
-        setAiStatus(!!m.online, !!m.checking);
-        if (m.online) vscode.postMessage({ type: 'listModels' });
+        if (!gotStatus || !m.checking) setAiStatus(!!m.online, !!m.checking);
+        if (!m.checking) {
+          gotStatus = true;
+          if (statusPoll) clearInterval(statusPoll);
+        }
         break;
       case 'chatModels':
         fillChatModels(m);
@@ -1571,7 +1665,7 @@ export function getChatHtml(defaultMode: string): string {
         sendBtn.classList.remove('hidden');
         break;
       case 'atSuggestions':
-        showMentions(m.suggestions || []);
+        showMentions(m.suggestions || [], m.error);
         break;
       case 'chips':
         chips.innerHTML = (m.items || []).map(it =>
@@ -1602,6 +1696,31 @@ export function getChatHtml(defaultMode: string): string {
         break;
     }
   });
+
+  statusPoll = setInterval(function() {
+    if (!gotStatus) vscode.postMessage({ type: 'ping' });
+    void refreshStatusDirect();
+  }, 5000);
+
+  if (aiStatusBtn) {
+    var bootLbl = aiStatusBtn.querySelector('.ai-status-label');
+    if (bootLbl) bootLbl.textContent = 'Checking…';
+  }
+  vscode.postMessage({ type: 'startAiService' });
+  void refreshStatusDirect();
+  vscode.postMessage({ type: 'webviewReady' });
+  setTimeout(function() { vscode.postMessage({ type: 'ping' }); }, 400);
+  } catch (bootErr) {
+    console.error('[rubynod chat] boot failed:', bootErr);
+    var errBtn = document.getElementById('ai-status');
+    if (errBtn) {
+      var lbl = errBtn.querySelector('.ai-status-label');
+      if (lbl) lbl.textContent = 'Error';
+      errBtn.title = String(bootErr && bootErr.message ? bootErr.message : bootErr);
+    }
+    var st = document.getElementById('status');
+    if (st) st.textContent = 'Chat UI failed to load — reload window';
+  }
 })();
 </script>
 </body>

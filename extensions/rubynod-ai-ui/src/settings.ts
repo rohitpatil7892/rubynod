@@ -32,7 +32,7 @@ export function getServiceUrl(): string {
 
 /** When true, the AI agent starts on first chat/index/AI command (faster VS Code startup). */
 export function isLazyStart(): boolean {
-  return cfg('ai.lazyStart', true);
+  return cfg('ai.lazyStart', false);
 }
 
 export async function getApiKey(): Promise<string | undefined> {

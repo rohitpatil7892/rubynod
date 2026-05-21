@@ -1,6 +1,6 @@
 {
   "name": "rubynod",
-  "version": "0.1.8",
+  "version": "0.1.18",
   "private": true,
   "description": "Rubynod — VS Code-class editor with built-in AI assistant",
   "repository": {
@@ -32,7 +32,8 @@
     "set-ext-icon": "node scripts/set-extension-icon.mjs",
     "build:ide": "bash scripts/build-ide.sh",
     "launch": "bash scripts/launch-rubynod.sh",
-    "install:ext": "bash scripts/ensure-node.sh sh -c 'VSIX=$(ls -1 dist/rubynod-ai-ui-*.vsix 2>/dev/null | head -1) && code --install-extension \"$VSIX\" --force'",
+    "install:ext": "bash scripts/ensure-node.sh sh -c 'VSIX=$(ls -1t dist/rubynod-ai-ui-*.vsix 2>/dev/null | head -1) && code --install-extension \"$VSIX\" --force'",
+    "cleanup:ext": "bash scripts/cleanup-old-rubynod-extensions.sh",
     "rebuild:native": "echo 'No native modules to rebuild (index uses sql.js).'"
   },
   "engines": {
