@@ -2,6 +2,49 @@
 
 All notable changes to the **Rubynod AI** VS Code extension are documented here.
 
+## [0.1.7] - 2025-05-21
+
+### Fixed
+- Strip `<script>` / `</script>` lines from agent file writes (server + extension)
+- Prevents `server.js` starting with a bogus HTML `<script>` line
+
+## [0.1.6] - 2025-05-21
+
+### Fixed
+- Chat syntax highlighting: keywords no longer break HTML (`class="tok-*"` text artifacts)
+- Highlight order: keywords before comments/strings; uses `data-rn` spans instead of `class="tok-*"`
+- Strip accidental `<script>` / markdown fences from agent `write_file` contents
+
+## [0.1.5] - 2025-05-21
+
+### Fixed
+- Chat code blocks: syntax highlighting no longer breaks HTML (`class="tok-function"` showing as text)
+- Code preview uses VS Code editor colors/font (not terminal theme)
+- Agent file writes: reject slug filenames from the user prompt; auto-rename to `server.js` / `app.py` etc.
+- Stronger rules: Node.js requests get `.js` files, not Python; short paths only
+
+## [0.1.4] - 2025-05-21
+
+### Fixed
+- Bundled server crash: keep `openai/_vendor` in the VSIX (required by the OpenAI SDK at runtime)
+- In-process start logs the real error to the extension host debug console
+
+## [0.1.3] - 2025-05-21
+
+### Added
+- **Bundled AI agent** — no git clone or `npm run start:ai` for users
+- **In-process server** (default) — runs inside VS Code; no system Node.js required
+- **`rubynod.ai.lazyStart`** — start agent on first chat/index use (faster VS Code startup)
+- Install guide: [docs/install-extension.md](../../docs/install-extension.md)
+
+### Changed
+- Codebase index uses **sql.js** (portable WASM) instead of native SQLite
+- CI builds and uploads VSIX per OS; release workflow runs `bundle:server` + `package:ext`
+- Smaller VSIX: prune dev files from bundled `server/node_modules`
+
+### Fixed
+- Bundle script cleanup (`ENOTEMPTY`) and copy path for AI `dist/`
+
 ## [0.1.2] - 2025-05-19
 
 ### Fixed

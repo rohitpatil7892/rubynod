@@ -2,20 +2,20 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { ChatViewProvider } from './chat-provider';
 import { attachTerminalListener } from './bridge';
-import { registerBridge } from './api';
 import { startBridgeServer, stopBridgeServer } from './bridge-server';
 import { runInlineEdit } from './inline-edit';
 import { registerTabAutocomplete } from './tab-complete';
 import { acceptDiff, rejectDiff, undoLastCheckpoint } from './diff-manager';
 import { pickContext } from './context';
-import { getServiceUrl, getWorkspaceRoot } from './settings';
+import { getServiceUrl, getWorkspaceRoot, isLazyStart } from './settings';
 import { attachmentFromUri } from './file-context';
 import { attachmentFromFolder } from './folder-context';
 import { setChatProviderRef, getChatProviderRef } from './chat-provider';
 import { IndexService } from './index-service';
 import { UpdateChecker } from './update-checker';
 import { OllamaConnect } from './ollama-connect';
-import { isAiServiceHealthy, startAiService } from './ai-service';
+import { startAiService, stopAiService } from './ai-service';
+import { configureRubynod, ensureRubynodReady } from './rubynod-ready';
 
 let chatProvider: ChatViewProvider;
 let indexService: IndexService;
@@ -49,21 +49,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   attachTerminalListener();
 
   const bridgePort = await startBridgeServer();
-  try {
-    await registerBridge(bridgePort);
-  } catch {
-    const start = 'Start AI Service';
-    const msg = await vscode.window.showWarningMessage(
-      `Rubynod AI service not reachable at ${getServiceUrl()}.`,
-      start
-    );
-    if (msg === start) void startAiService();
-  }
+  configureRubynod(context.extensionPath, bridgePort);
 
-  if (!(await isAiServiceHealthy())) {
-    void vscode.window.showInformationMessage(
-      'Rubynod: start the local AI agent (not just Ollama). Cmd+Shift+P → Rubynod: Start AI Service — requires a one-time rubynod repo clone.'
-    );
+  if (!isLazyStart()) {
+    const aiReady = await ensureRubynodReady();
+    if (!aiReady) {
+      void vscode.window.showInformationMessage(
+        'Rubynod: could not start the AI agent. Cmd+Shift+P → Rubynod: Start AI Service. For local models, run Ollama (ollama serve).'
+      );
+    }
   }
 
   chatProvider = new ChatViewProvider(context.extensionUri, context);
@@ -104,15 +98,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('rubynod.startAiService', () => startAiService()),
+    vscode.commands.registerCommand('rubynod.startAiService', () =>
+      startAiService(context.extensionPath)
+    ),
     vscode.commands.registerCommand('rubynod.openSettings', () => {
       vscode.commands.executeCommand(
         'workbench.action.openSettings',
         `@ext:${context.extension.id}`
       );
     }),
-    vscode.commands.registerCommand('rubynod.openChat', () => {
-      vscode.commands.executeCommand('rubynod.chatView.focus');
+    vscode.commands.registerCommand('rubynod.openChat', async () => {
+      await vscode.commands.executeCommand('rubynod.chatView.focus');
+      void ensureRubynodReady();
     }),
     vscode.commands.registerCommand('rubynod.newChat', async () => {
       await getChatProviderRef()?.startNewChat();
@@ -125,10 +122,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (ok === 'Clear') await getChatProviderRef()?.clearHistory();
     }),
-    vscode.commands.registerCommand('rubynod.openComposer', () => {
-      vscode.commands.executeCommand('rubynod.chatView.focus');
+    vscode.commands.registerCommand('rubynod.openComposer', async () => {
+      await vscode.commands.executeCommand('rubynod.chatView.focus');
+      void ensureRubynodReady();
     }),
-    vscode.commands.registerCommand('rubynod.inlineEdit', runInlineEdit),
+    vscode.commands.registerCommand('rubynod.inlineEdit', async () => {
+      if (await ensureRubynodReady()) await runInlineEdit();
+    }),
     vscode.commands.registerCommand('rubynod.addFileToChat', () => addToChat()),
     vscode.commands.registerCommand('rubynod.addToChat', (uri: vscode.Uri) => addToChat(uri)),
     vscode.commands.registerCommand('rubynod.addSelectionToChat', () => {
@@ -159,6 +159,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand('rubynod.undoCheckpoint', undoLastCheckpoint),
     vscode.commands.registerCommand('rubynod.addMemory', async () => {
+      if (!(await ensureRubynodReady())) {
+        vscode.window.showWarningMessage('Rubynod AI service is offline.');
+        return;
+      }
       const text = await vscode.window.showInputBox({ prompt: 'Memory to remember across chats' });
       if (!text?.trim()) return;
       await fetch(`${getServiceUrl()}/memories`, {
@@ -176,9 +180,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.window.showTextDocument(doc, { preview: true });
     })
   );
-
 }
 
 export function deactivate(): void {
   stopBridgeServer();
+  void stopAiService();
 }

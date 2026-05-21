@@ -29,6 +29,12 @@ export function describeToolStart(
         label: `Exploring ${short || 'directory'}`,
         detail: `Listing ${args.path ?? '.'}`,
       };
+    case 'inspect_workspace':
+      return {
+        step: 'explore',
+        label: 'Checking project setup',
+        detail: 'package.json, server files, run commands',
+      };
     case 'grep':
       return {
         step: 'search',

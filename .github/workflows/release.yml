@@ -34,10 +34,12 @@ jobs:
           npm ci
           npm run build
 
-      - name: Package VS Code extension (.vsix)
+      - name: Bundle AI server and package VSIX
         run: |
-          npx --yes @vscode/vsce@latest package extensions/rubynod-ai-ui \
-            --out "dist-rubynod-ai-ui-${{ steps.ver.outputs.version }}.vsix"
+          npm run bundle:server
+          npm run package:ext
+          VSIX=$(ls -1 dist/rubynod-ai-ui-*.vsix | head -1)
+          cp "$VSIX" "dist-rubynod-ai-ui-${{ steps.ver.outputs.version }}.vsix"
 
       - name: Generate update manifests
         env:

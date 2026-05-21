@@ -30,6 +30,11 @@ export function getServiceUrl(): string {
   return cfg('ai.serviceUrl', 'http://127.0.0.1:3847');
 }
 
+/** When true, the AI agent starts on first chat/index/AI command (faster VS Code startup). */
+export function isLazyStart(): boolean {
+  return cfg('ai.lazyStart', true);
+}
+
 export async function getApiKey(): Promise<string | undefined> {
   const fromSetting = cfg<string>('models.apiKey', '');
   if (fromSetting) return fromSetting;

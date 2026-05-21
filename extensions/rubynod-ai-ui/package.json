@@ -2,7 +2,7 @@
   "name": "rubynod-ai-ui",
   "displayName": "Rubynod AI",
   "description": "Open-source AI coding assistant: agent chat, Ollama & cloud models, file edits, diff review, @ context, indexing, inline edit & tab complete.",
-  "version": "0.1.2",
+  "version": "0.1.8",
   "publisher": "RohitPatil",
   "license": "MIT",
   "icon": "media/icon-128.png",
@@ -195,11 +195,29 @@
           "description": "URL of the Rubynod AI agent service.",
           "order": 1
         },
+        "rubynod.ai.lazyStart": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Start the bundled AI agent on **first use** (chat, index, Cmd+K) instead of when VS Code opens. Recommended for faster startup.",
+          "order": 2
+        },
+        "rubynod.ai.inProcess": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Run the AI agent **inside VS Code** (recommended). No separate Node.js install required. If disabled, falls back to a child process (needs Node on PATH).",
+          "order": 3
+        },
+        "rubynod.ai.nodePath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to **Node.js 20+** for child-process fallback only (`rubynod.ai.inProcess` off). Leave empty to auto-detect.",
+          "order": 4
+        },
         "rubynod.ai.repoPath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Path to your [Rubynod](https://github.com/rohitpatil7892/rubynod) git clone (required once for **Start AI Service**). The VS Code extension is not enough by itself — it needs the local agent on port **3847**, which then calls **Ollama**. Auto-detected if that folder is open in the workspace.",
-          "order": 2
+          "markdownDescription": "*(Optional, dev fallback)* Path to a [Rubynod](https://github.com/rohitpatil7892/rubynod) git clone if the bundled server is missing. Normal installs start the agent automatically from the extension.",
+          "order": 5
         },
         "rubynod.models.provider": {
           "type": "string",

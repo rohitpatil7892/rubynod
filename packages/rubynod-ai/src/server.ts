@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import { WebSocketServer } from 'ws';
 import http from 'node:http';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { CodebaseIndexer } from '@rubynod/index';
 import { McpHub } from '@rubynod/mcp';
 import {
@@ -22,6 +24,7 @@ import { queueIndexBuild } from './index-queue.js';
 import { getCachedContextPack, setCachedContextPack } from './context-cache.js';
 import { appendMemory, loadMemories } from './memories.js';
 import { checkOllamaHealth, listOllamaModels, pickDefaultOllamaModel } from './ollama.js';
+import { initSqlEngine } from '@rubynod/index';
 
 const PORT = Number(process.env.RUBYNOD_AI_PORT ?? 3847);
 const HOST = process.env.RUBYNOD_AI_HOST ?? '127.0.0.1';
@@ -303,8 +306,8 @@ app.get('/cloud/jobs/:id', (req, res) => {
   else res.json(job);
 });
 
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+const httpServer = http.createServer(app);
+const wss = new WebSocketServer({ server: httpServer });
 
 const wsClients = new Set<import('ws').WebSocket>();
 
@@ -344,8 +347,57 @@ process.on('unhandledRejection', (reason) => {
   console.error('[rubynod-ai] unhandledRejection:', reason);
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`Rubynod AI service listening on http://${HOST}:${PORT}`);
-});
+export async function startRubynodServer(opts?: {
+  port?: number;
+  host?: string;
+}): Promise<http.Server> {
+  await initSqlEngine();
 
-export { app, server, PORT };
+  const port = opts?.port ?? PORT;
+  const host = opts?.host ?? HOST;
+  if (httpServer.listening) {
+    return httpServer;
+  }
+  return new Promise((resolve, reject) => {
+    httpServer.once('error', reject);
+    httpServer.listen(port, host, () => {
+      httpServer.off('error', reject);
+      console.log(`Rubynod AI service listening on http://${host}:${port}`);
+      resolve(httpServer);
+    });
+  });
+}
+
+export function stopRubynodServer(): Promise<void> {
+  return new Promise((resolve) => {
+    if (!httpServer.listening) {
+      resolve();
+      return;
+    }
+    for (const ws of wsClients) {
+      ws.close();
+    }
+    wsClients.clear();
+    wss.close();
+    httpServer.close(() => resolve());
+  });
+}
+
+function isDirectCliRun(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(path.resolve(entry)).href;
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectCliRun()) {
+  void startRubynodServer().catch((err) => {
+    console.error('[rubynod-ai] failed to start:', err);
+    process.exit(1);
+  });
+}
+
+export { app, httpServer as server, PORT, HOST };

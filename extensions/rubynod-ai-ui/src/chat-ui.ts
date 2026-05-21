@@ -323,6 +323,13 @@ export function getChatHtml(defaultMode: string): string {
     font-size: 13px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.12);
   }
+  .bubble-user .at-mention {
+    color: var(--rn-accent);
+    background: color-mix(in srgb, var(--rn-accent) 18%, transparent);
+    border-radius: 4px;
+    padding: 0 3px;
+    font-weight: 600;
+  }
   .bubble-assistant { align-self: stretch; width: 100%; }
   .assistant-text {
     padding: 2px 4px; white-space: pre-wrap; word-break: break-word;
@@ -335,19 +342,21 @@ export function getChatHtml(defaultMode: string): string {
   }
   .assistant-text .md-p { margin: 0 0 10px; }
   .assistant-text .md-p:last-child { margin-bottom: 0; }
-  .assistant-text pre.code-block {
+  .assistant-text pre.code-block,
+  .tool-body pre.code-block {
     margin: 10px 0;
     padding: 10px 12px;
     border-radius: var(--rn-radius-sm);
-    border: 1px solid var(--rn-border);
-    background: var(--vscode-terminal-background, #0d0d0d);
-    color: var(--vscode-terminal-foreground, #d4d4d4);
+    border: 1px solid var(--vscode-widget-border, var(--rn-border));
+    background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background, #1e1e1e));
+    color: var(--vscode-editor-foreground, #d4d4d4);
     overflow-x: auto;
     font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
-    font-size: 11px;
-    line-height: 1.45;
+    font-size: var(--vscode-editor-font-size, 13px);
+    line-height: 1.5;
     white-space: pre;
     word-break: normal;
+    tab-size: 2;
   }
   .assistant-text pre.code-block code {
     display: block;
@@ -356,12 +365,12 @@ export function getChatHtml(defaultMode: string): string {
     border-radius: 0;
     font-size: inherit;
   }
-  .tok-keyword { color: var(--vscode-symbolIcon-keywordForeground, #569cd6); }
-  .tok-string { color: var(--vscode-debugTokenExpression-string, #ce9178); }
-  .tok-comment { color: var(--vscode-editorLineNumber-activeForeground, #6a9955); font-style: italic; }
-  .tok-number { color: var(--vscode-debugTokenExpression-number, #b5cea8); }
-  .tok-function { color: var(--vscode-symbolIcon-functionForeground, #dcdcaa); }
-  .tok-type { color: var(--vscode-symbolIcon-classForeground, #4ec9b0); }
+  [data-rn="kw"] { color: var(--vscode-symbolIcon-keywordForeground, #569cd6); }
+  [data-rn="s"] { color: var(--vscode-debugTokenExpression-string, #ce9178); }
+  [data-rn="c"] { color: var(--vscode-editorLineNumber-activeForeground, #6a9955); font-style: italic; }
+  [data-rn="n"] { color: var(--vscode-debugTokenExpression-number, #b5cea8); }
+  [data-rn="fn"] { color: var(--vscode-symbolIcon-functionForeground, #dcdcaa); }
+  [data-rn="ty"] { color: var(--vscode-symbolIcon-classForeground, #4ec9b0); }
   .tool-result { margin-top: 8px; font-size: 10px; color: var(--rn-muted); }
   .assistant-text .code-lang {
     display: block;
@@ -552,16 +561,48 @@ export function getChatHtml(defaultMode: string): string {
   .composer-input-wrap {
     padding: 10px 12px 4px;
   }
+  .composer-input-stack {
+    position: relative;
+    width: 100%;
+    min-height: 40px;
+  }
+  #input-mirror {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--rn-text);
+  }
+  #input-mirror .at-mention {
+    color: var(--rn-accent);
+    background: color-mix(in srgb, var(--rn-accent) 18%, transparent);
+    border-radius: 4px;
+    font-weight: 600;
+  }
   #input {
+    position: relative;
+    z-index: 1;
     width: 100%; min-height: 40px; max-height: 140px;
     resize: none; border: none; background: transparent;
-    color: var(--rn-text); font-family: inherit;
+    color: transparent;
+    caret-color: var(--rn-text);
+    font-family: inherit;
     font-size: 13px; line-height: 1.5; outline: none;
     padding: 0;
   }
   #input::placeholder {
     color: var(--rn-muted);
     opacity: 1;
+    -webkit-text-fill-color: var(--rn-muted);
+  }
+  #input::selection {
+    background: color-mix(in srgb, var(--rn-accent) 35%, transparent);
+    color: transparent;
   }
   .composer-toolbar {
     display: flex;
@@ -706,7 +747,10 @@ export function getChatHtml(defaultMode: string): string {
     </div>
     <div class="composer-box">
       <div class="composer-input-wrap">
-        <textarea id="input" rows="2" placeholder="Ask Rubynod… (@ files · Enter send · Shift+Enter new line)"></textarea>
+        <div class="composer-input-stack">
+          <div id="input-mirror" aria-hidden="true"></div>
+          <textarea id="input" rows="2" placeholder="Ask Rubynod… (@ files · Enter send · Shift+Enter new line)"></textarea>
+        </div>
       </div>
       <div class="composer-toolbar">
         <div class="toolbar-row toolbar-row-models">
@@ -745,6 +789,7 @@ export function getChatHtml(defaultMode: string): string {
   const thread = document.getElementById('thread');
   const emptyEl = document.getElementById('empty');
   const input = document.getElementById('input');
+  const inputMirror = document.getElementById('input-mirror');
   const statusEl = document.getElementById('status');
   const composerStatusRow = document.getElementById('composer-status-row');
   const sendBtn = document.getElementById('send-btn');
@@ -955,7 +1000,7 @@ export function getChatHtml(defaultMode: string): string {
 
   function langFromPath(filePath) {
     const ext = String(filePath || '').split('.').pop().toLowerCase();
-    const map = { ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript', py: 'python', rs: 'rust', go: 'go', java: 'java', json: 'json', md: 'markdown', sh: 'bash', yml: 'yaml', yaml: 'yaml' };
+    const map = { ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript', py: 'python', rs: 'rust', go: 'go', java: 'java', json: 'json', md: 'markdown', sh: 'bash', yml: 'yaml', yaml: 'yaml' };
     return map[ext] || ext || 'code';
   }
 
@@ -1014,17 +1059,51 @@ export function getChatHtml(defaultMode: string): string {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  /** Highlight @file, @folder:path, @name:line-range in user text and composer mirror. */
+  function highlightAtMentions(text) {
+    let s = escapeHtml(text);
+    s = s.replace(/@(?:folder:[^\s@]+|(?:[^\s@/]+\/)*[^\s@]+)(?::\d+(?:-\d+)?)?/g, function(m) {
+      return '<span class="at-mention">' + m + '</span>';
+    });
+    return s;
+  }
+
+  function syncInputMirror() {
+    if (!inputMirror) return;
+    const text = input.value;
+    inputMirror.innerHTML = text ? highlightAtMentions(text) : '';
+    inputMirror.scrollTop = input.scrollTop;
+    inputMirror.scrollLeft = input.scrollLeft;
+  }
+
+  function rn(type, text) {
+    return '<span data-rn="' + type + '">' + text + '</span>';
+  }
+
   function highlightCode(code, lang) {
     let s = escapeHtml(stripLineNumbers(code));
-    s = s.replace(/\\/\\*[\\s\\S]*?\\*\\//g, function(m) { return '<span class="tok-comment">' + m + '</span>'; });
-    s = s.replace(/(^|[\\s;{}])(\\/\\/[^\\n]*)/g, function(_, pre, cm) { return pre + '<span class="tok-comment">' + cm + '</span>'; });
-    s = s.replace(/&quot;(?:[^&]|&(?!quot;))*&quot;/g, function(m) { return '<span class="tok-string">' + m + '</span>'; });
-    s = s.replace(/&#39;(?:[^&]|&(?!#39;))*&#39;/g, function(m) { return '<span class="tok-string">' + m + '</span>'; });
-    s = s.replace(new RegExp(String.fromCharCode(96) + '[^' + String.fromCharCode(96) + ']*' + String.fromCharCode(96), 'g'), function(m) { return '<span class="tok-string">' + m + '</span>'; });
-    s = s.replace(/\\b([A-Za-z_][\\w]*)\\s*(?=\\()/g, '<span class="tok-function">$1</span>');
-    s = s.replace(/\\b(?:const|let|var|function|return|if|else|elif|for|while|do|switch|case|break|continue|class|extends|import|export|from|as|async|await|try|catch|finally|throw|new|typeof|instanceof|interface|type|enum|implements|public|private|protected|static|void|int|float|double|bool|boolean|string|number|any|unknown|never|null|undefined|true|false|def|print|lambda|pass|raise|yield|with|package|func|struct|impl|use|pub|fn|mut|match|loop|crate|mod|super|trait|where)\\b/g, '<span class="tok-keyword">$&</span>');
-    s = s.replace(/\\b([A-Z][A-Za-z0-9_]*)\\b/g, '<span class="tok-type">$1</span>');
-    s = s.replace(/\\b(\\d+\\.?\\d*)\\b/g, '<span class="tok-number">$1</span>');
+    const l = String(lang || '').toLowerCase();
+    const isPy = l === 'python' || l === 'py';
+    var kwJs = 'const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|class|extends|import|export|from|as|async|await|try|catch|finally|throw|new|typeof|instanceof|interface|type|enum|implements|public|private|protected|static|void|true|false|null|undefined';
+    var kwPy = 'def|class|import|from|return|if|elif|else|for|while|break|continue|pass|raise|yield|with|as|try|except|finally|lambda|True|False|None|and|or|not|in|is';
+    var kw = isPy ? kwPy : kwJs;
+    s = s.replace(new RegExp('\\\\b(?:' + kw + ')\\\\b', 'g'), function(m) { return rn('kw', m); });
+    s = s.replace(/\\/\\*[\\s\\S]*?\\*\\//g, function(m) { return rn('c', m); });
+    s = s.replace(/(^|[\\s;{}])(\\/\\/[^\\n]*)/g, function(_, pre, cm) { return pre + rn('c', cm); });
+    s = s.replace(/&quot;(?:[^&]|&(?!quot;))*&quot;/g, function(m) { return rn('s', m); });
+    s = s.replace(/&#39;(?:[^&]|&(?!#39;))*&#39;/g, function(m) { return rn('s', m); });
+    s = s.replace(new RegExp(String.fromCharCode(96) + '[^' + String.fromCharCode(96) + ']*' + String.fromCharCode(96), 'g'), function(m) { return rn('s', m); });
+    if (!isPy) {
+      s = s.replace(/(^|[^\\w>])([A-Za-z_][\\w]*)(?=\\s*\\()/g, function(_, pre, name) {
+        return pre + rn('fn', name);
+      });
+    }
+    s = s.replace(/(^|[^<\\w/&;])([A-Z][A-Za-z0-9_]*)(?![^<]*>)/g, function(_, pre, ty) {
+      return pre + rn('ty', ty);
+    });
+    s = s.replace(/(^|[^<\\w/&;])(\\d+\\.?\\d*)/g, function(_, pre, num) {
+      return pre + rn('n', num);
+    });
     return s;
   }
 
@@ -1071,10 +1150,15 @@ export function getChatHtml(defaultMode: string): string {
     const pos = input.selectionStart ?? val.length;
     const before = val.slice(0, pos);
     const after = val.slice(pos);
-    const insert = it.kind === 'folder' ? '@folder:' + it.path + ' ' : '@' + it.path + ' ';
+    const mention =
+      it.kind === 'folder'
+        ? 'folder:' + it.path
+        : (it.mentionText || it.label || it.path);
+    const insert = it.kind === 'folder' ? '@folder:' + it.path + ' ' : '@' + mention + ' ';
     input.value = before.replace(/@([^\\s@]*)$/, insert) + after;
     hideMentions();
     input.focus();
+    syncInputMirror();
     vscode.postMessage({ type: 'pickMention', query: it.kind === 'folder' ? 'folder:' + it.path : it.path });
   }
 
@@ -1090,7 +1174,9 @@ export function getChatHtml(defaultMode: string): string {
     else hideMentions();
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+    syncInputMirror();
   });
+  input.addEventListener('scroll', () => syncInputMirror());
 
   input.addEventListener('keydown', e => {
     if (mentionBox.classList.contains('visible')) {
@@ -1231,7 +1317,7 @@ export function getChatHtml(defaultMode: string): string {
     state.assistantEl = null;
     const el = document.createElement('div');
     el.className = 'bubble-user';
-    el.textContent = text;
+    el.innerHTML = highlightAtMentions(text);
     thread.appendChild(el);
     scroll();
   }
@@ -1405,6 +1491,7 @@ export function getChatHtml(defaultMode: string): string {
     appendUser(text);
     input.value = '';
     input.style.height = 'auto';
+    syncInputMirror();
     setStatus('Sending…', true);
     vscode.postMessage({ type: 'send', text, mode, model, provider });
   }

@@ -5,13 +5,31 @@ import { getWorkspaceRoot } from './settings';
 import { searchWorkspaceSymbols } from './workspace-symbols';
 
 export interface MentionSuggestion {
+  /** Shown in the @ dropdown (usually basename). */
   label: string;
+  /** Full workspace-relative path used for context resolution. */
   path: string;
+  /** Inserted in the composer after @ (basename for files). */
+  mentionText?: string;
   kind: 'file' | 'folder' | 'symbol';
   description?: string;
   startLine?: number;
   endLine?: number;
   symbolName?: string;
+}
+
+function fileMentionLabel(rel: string): string {
+  return path.basename(rel);
+}
+
+function fileMentionDescription(rel: string): string | undefined {
+  const dir = path.dirname(rel).replace(/\\/g, '/');
+  return dir === '.' ? undefined : dir;
+}
+
+function folderMentionLabel(rel: string): string {
+  const name = rel.split('/').filter(Boolean).pop() ?? rel;
+  return `${name}/`;
 }
 
 const SKIP = new Set(['node_modules', '.git', 'dist', 'build', '.rubynod']);
@@ -65,10 +83,11 @@ export async function suggestMentions(query: string, limit = 20): Promise<Mentio
     const score = scoreMatch(rel, q);
     if (q && score === 0) continue;
     results.push({
-      label: rel,
+      label: fileMentionLabel(rel),
+      mentionText: fileMentionLabel(rel),
       path: rel,
       kind: 'file',
-      description: `@${rel}`,
+      description: fileMentionDescription(rel),
     });
   }
 
@@ -76,10 +95,10 @@ export async function suggestMentions(query: string, limit = 20): Promise<Mentio
     const dirs = await findMatchingDirs(ws, q, 10);
     for (const d of dirs) {
       results.unshift({
-        label: `${d}/`,
+        label: folderMentionLabel(d),
         path: d,
         kind: 'folder',
-        description: `@folder:${d}`,
+        description: fileMentionDescription(d) ?? d,
       });
     }
   }
@@ -91,7 +110,10 @@ export async function suggestMentions(query: string, limit = 20): Promise<Mentio
 function scoreMatch(rel: string, q: string): number {
   if (!q) return 1;
   const lower = rel.toLowerCase();
-  if (lower === q) return 100;
+  const base = path.basename(rel).toLowerCase();
+  if (base === q) return 100;
+  if (base.endsWith(q)) return 85;
+  if (lower === q) return 95;
   if (lower.endsWith(q)) return 80;
   if (lower.includes(q)) return 50;
   const parts = q.split('/');
@@ -139,9 +161,11 @@ export async function pickFilesAndFolders(): Promise<MentionSuggestion[]> {
     const rel = path.relative(ws, u.fsPath).replace(/\\/g, '/');
     const stat = fsStatSync(u.fsPath);
     return {
-      label: stat?.isDirectory() ? `${rel}/` : rel,
+      label: stat?.isDirectory() ? folderMentionLabel(rel) : fileMentionLabel(rel),
+      mentionText: stat?.isDirectory() ? undefined : fileMentionLabel(rel),
       path: rel,
       kind: stat?.isDirectory() ? 'folder' : 'file',
+      description: fileMentionDescription(rel),
     };
   });
 }

@@ -26,57 +26,53 @@
 
 ## Important: extension + AI service
 
-Installing from the Marketplace gives you the **VS Code UI only**. Rubynod also needs a small **AI service** from the same repo (agent loop, tools, indexing) and usually **Ollama** for local models.
+The extension **bundles and auto-starts** the Rubynod AI agent on port **3847** inside VS Code (in-process by default — **no separate Node.js install**). You still need **Ollama** for local models (or a cloud API key).
 
 ```
-Extension  →  AI service (:3847)  →  Ollama (:11434) or cloud API
+Extension (in-process agent)  →  http://127.0.0.1:3847  →  Ollama (:11434) or cloud API
 ```
 
 ---
 
 ## Quick setup (Marketplace install)
 
-### 1. One-time: clone and build the AI service
+### 1. Install requirements
 
-```bash
-git clone https://github.com/rohitpatil7892/rubynod.git
-cd rubynod
-
-# macOS: Node 22 recommended (avoid Node 25 for native modules)
-export PATH="/opt/homebrew/opt/node@22/bin:$PATH"
-
-npm install
-npm run build
-```
-
-### 2. Point the extension at the repo
-
-1. Open VS Code **Settings** (`Cmd+,`)
-2. Search `rubynod.ai.repoPath`
-3. Set the path to your `rubynod` clone (e.g. `~/Desktop/myCode/rubynod`)
-
-### 3. Start services
-
-**Terminal A — AI service** (keep running):
-
-```bash
-cd /path/to/rubynod
-npm run start:ai
-```
-
-**Terminal B — Ollama** (if using local models):
+- **VS Code 1.85+**
+- **Ollama** (recommended for local models)
 
 ```bash
 ollama serve
 ollama pull qwen2.5-coder
 ```
 
-### 4. In VS Code
+### 2. In VS Code
 
-1. Command Palette → **Rubynod: Start AI Service** (first time may confirm repo path)
-2. Open the **Rubynod AI** activity bar icon → **Chat**
-3. Set **Provider** to Ollama and pick a **model** (e.g. `qwen2.5-coder` for file tools)
-4. Use **Ask** for questions; **Agent** when you want edits
+1. Install **Rubynod AI** from the Marketplace and reload
+2. The extension starts the AI agent automatically (check **Output → Rubynod AI Service**)
+3. Open the **Rubynod AI** activity bar icon → **Chat**
+4. Set **Provider** to Ollama and pick a **model** (e.g. `qwen2.5-coder` for file tools)
+5. Use **Ask** for questions; **Agent** when you want edits
+
+If the agent does not start: **Cmd+Shift+P → Rubynod: Start AI Service**
+
+### Install from VSIX (release)
+
+```bash
+npm run package:ext
+code --install-extension dist/rubynod-ai-ui-*.vsix
+```
+
+See [docs/install-extension.md](../../docs/install-extension.md) for end-user setup (extension + Ollama only).
+
+### Developing from source
+
+```bash
+git clone https://github.com/rohitpatil7892/rubynod.git
+cd rubynod && npm install && npm run package:ext
+```
+
+Then F5 the `rubynod-ai-ui` folder, or install the VSIX from `dist/`.
 
 ---
 
@@ -117,7 +113,7 @@ Search **`rubynod`** in Settings for the full list.
 ## Requirements
 
 - **VS Code 1.85+**
-- **Node.js 20 or 22** — for the AI service (not bundled in the VSIX)
+- **Node.js** — not required for normal use (agent runs in-process). Optional for child-process fallback (`rubynod.ai.inProcess`: false)
 - **Ollama** (recommended) — local LLMs at `http://127.0.0.1:11434`
 - **ripgrep** (`rg`) — agent search ([install](https://github.com/BurntSushi/ripgrep))
 

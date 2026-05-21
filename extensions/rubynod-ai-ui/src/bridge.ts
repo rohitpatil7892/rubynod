@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { getWorkspaceRoot } from './settings';
 import { buildRipgrepShell, isWindows } from './platform';
 import { writeWorkspaceFile } from './file-write';
+import { prepareJsonWrite } from './json-write';
 
 const execAsync = promisify(exec);
 
@@ -59,9 +60,11 @@ export function createIdeBridge(): Record<string, (...args: any[]) => Promise<un
       const openDoc = vscode.workspace.textDocuments.find(
         (d) => d.uri.fsPath === abs && !d.isClosed
       );
-      let content = openDoc ? openDoc.getText() : fs.readFileSync(abs, 'utf8');
+      const original = openDoc ? openDoc.getText() : fs.readFileSync(abs, 'utf8');
+      let content = original;
       if (replaceAll) content = content.split(oldStr).join(newStr);
       else content = content.replace(oldStr, newStr);
+      content = prepareJsonWrite(filePath, content, original);
       await writeWorkspaceFile(filePath, content);
       return content;
     },
@@ -98,12 +101,14 @@ export function createIdeBridge(): Record<string, (...args: any[]) => Promise<un
       const autoApprove = isYoloMode() || isAutoApproveTerminal();
       if (!autoApprove) {
         const ok = await vscode.window.showWarningMessage(
-          `Run terminal command?\n${command}`,
+          `Rubynod wants to run this command:\n\n${command}\n\nApprove to run in the integrated terminal.`,
           { modal: true },
           'Approve',
           'Reject'
         );
-        if (ok !== 'Approve') return 'Rejected by user';
+        if (ok !== 'Approve') {
+          return `Rejected by user. Tell them they can run manually: ${command}`;
+        }
       }
       const term = vscode.window.createTerminal({ cwd: cwd ? path.join(ws(), cwd) : ws() });
       term.show();

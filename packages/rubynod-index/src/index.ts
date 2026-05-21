@@ -1,4 +1,5 @@
 export { CodebaseIndexer } from './indexer.js';
+export { initSqlEngine, isSqlEngineReady } from './sql-init.js';
 export type {
   SearchResult,
   IndexProgress,

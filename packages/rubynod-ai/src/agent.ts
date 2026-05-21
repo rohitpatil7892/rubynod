@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { CodebaseIndexer } from '@rubynod/index';
 import { McpHub } from '@rubynod/mcp';
 import { buildSystemPrompt } from './rules.js';
+import { inspectWorkspaceSetup, shouldAttachWorkspaceSetup } from './project-context.js';
 import { getCachedContextPack, setCachedContextPack } from './context-cache.js';
 import { queueIndexBuild } from './index-queue.js';
 import { ModelRouter, resolveModelConfig } from './model-router.js';
@@ -76,6 +77,14 @@ export async function* runAgent(
 
   const autoContext = cs?.autoIndexContext !== false;
   const contextAttachments = [...(req.context ?? [])];
+
+  if (mode === 'agent' && shouldAttachWorkspaceSetup(req.message)) {
+    contextAttachments.unshift({
+      type: 'rules',
+      label: 'Workspace setup',
+      content: inspectWorkspaceSetup(req.workspaceRoot),
+    });
+  }
   const cacheTtl = cs?.contextCacheTtlSec ?? 45;
   if (autoContext && req.message.trim().length > 3) {
     let pack = getCachedContextPack(req.workspaceRoot, req.message, cacheTtl);

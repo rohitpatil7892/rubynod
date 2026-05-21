@@ -10,6 +10,7 @@ import {
 } from './settings';
 import type { ContextAttachment } from './context';
 import { getBridgePort } from './bridge-server';
+import { ensureRubynodReady } from './rubynod-ready';
 
 export type AgentMode = 'agent' | 'plan' | 'ask' | 'debug';
 
@@ -32,6 +33,7 @@ export async function* streamAgent(opts: {
   /** Per-message provider override (ollama, openai, anthropic, openrouter). */
   provider?: string;
 }): AsyncGenerator<{ type: string; data: unknown }> {
+  await ensureRubynodReady();
   const clientSettings = getClientSettings();
   const model = opts.model?.trim() || clientSettings.model;
   const provider = (opts.provider?.trim() || clientSettings.provider) as typeof clientSettings.provider;
@@ -120,6 +122,7 @@ export async function inlineEditRequest(body: {
   selection: string;
   instruction: string;
 }): Promise<Response> {
+  await ensureRubynodReady();
   return fetch(`${getServiceUrl()}/inline-edit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -132,6 +135,7 @@ export async function inlineEditRequest(body: {
 }
 
 export async function tabCompleteRequest(prefix: string, suffix: string): Promise<Response> {
+  await ensureRubynodReady();
   return fetch(`${getServiceUrl()}/tab-complete`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

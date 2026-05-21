@@ -17,6 +17,51 @@ export interface FileRef {
   endLine?: number;
 }
 
+const FILE_SEARCH_EXCLUDE = '**/{node_modules,.git,dist,build,.rubynod}/**';
+
+/** Resolve basename or relative path to a workspace-relative file path. */
+export async function resolveWorkspaceFilePath(p: string): Promise<string | null> {
+  const ws = getWorkspaceRoot();
+  const normalized = p.replace(/^\//, '').replace(/\\/g, '/');
+  if (!normalized || normalized.startsWith('folder:')) return null;
+
+  const direct = path.isAbsolute(normalized)
+    ? path.relative(ws, normalized).replace(/\\/g, '/')
+    : normalized;
+
+  if (direct.includes('/')) {
+    const abs = path.join(ws, direct);
+    if (fs.existsSync(abs) && fs.statSync(abs).isFile()) return direct;
+  }
+
+  const base = path.basename(normalized);
+  const uris = await vscode.workspace.findFiles(`**/${base}`, FILE_SEARCH_EXCLUDE, 80);
+  const matches = uris
+    .map((u) => path.relative(ws, u.fsPath).replace(/\\/g, '/'))
+    .filter((rel) => fs.existsSync(path.join(ws, rel)) && fs.statSync(path.join(ws, rel)).isFile());
+
+  if (!matches.length) return null;
+  if (matches.length === 1) return matches[0]!;
+
+  const exact = matches.find((m) => m === direct || m.endsWith(`/${direct}`));
+  if (exact) return exact;
+
+  matches.sort((a, b) => a.length - b.length);
+  return matches[0]!;
+}
+
+function chipLabelForFile(rel: string, ref: FileRef): string {
+  const base = path.basename(rel);
+  if (ref.startLine != null) {
+    const range =
+      ref.endLine != null && ref.endLine !== ref.startLine
+        ? `${ref.startLine}-${ref.endLine}`
+        : `${ref.startLine}`;
+    return `${base}:${range}`;
+  }
+  return base;
+}
+
 /**
  * Parse @ mentions from chat:
  *   @src/foo.ts
@@ -124,10 +169,15 @@ export function formatFileBlock(ref: FileRef, content: string): string {
 
 export async function attachmentFromFile(ref: FileRef): Promise<ContextAttachment | null> {
   const ws = getWorkspaceRoot();
-  const rel = ref.path.replace(/^\//, '').replace(/^folder:/, '');
+  let rel = ref.path.replace(/^\//, '').replace(/^folder:/, '');
   if (ref.path.startsWith('folder:') || ref.path.endsWith('/')) {
     return attachmentFromFolder(rel);
   }
+
+  const resolved = await resolveWorkspaceFilePath(rel);
+  if (!resolved) return null;
+  rel = resolved;
+
   const abs = path.isAbsolute(rel) ? rel : path.join(ws, rel);
   if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return null;
 
@@ -138,15 +188,13 @@ export async function attachmentFromFile(ref: FileRef): Promise<ContextAttachmen
   }
 
   const sliced = readLines(raw, ref.startLine, ref.endLine);
-  const label =
-    ref.startLine != null
-      ? `${rel}:${ref.startLine}${ref.endLine && ref.endLine !== ref.startLine ? `-${ref.endLine}` : ''}`
-      : rel;
+  const fileRef: FileRef = { path: rel, startLine: ref.startLine, endLine: ref.endLine };
+  const label = chipLabelForFile(rel, fileRef);
 
   return {
     type: 'file',
     label,
-    content: formatFileBlock(ref, sliced),
+    content: formatFileBlock(fileRef, sliced),
     path: rel,
     startLine: ref.startLine,
     endLine: ref.endLine,

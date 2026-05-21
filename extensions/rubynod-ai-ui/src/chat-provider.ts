@@ -14,6 +14,8 @@ import { createIdeBridge } from './bridge';
 import { pickContext, type ContextAttachment } from './context';
 import { streamAgent, cancelAgent, type AgentMode } from './api';
 import { formatAiConnectionError, isAiServiceHealthy, startAiService } from './ai-service';
+import { ensureRubynodReady } from './rubynod-ready';
+import { isLazyStart } from './settings';
 import {
   addPendingDiff,
   acceptDiff,
@@ -109,7 +111,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.refreshPendingDiffs();
     this.restoreHistory();
     void this.refreshAiStatus();
-    void this.refreshChatModels();
+    if (!isLazyStart()) {
+      void ensureRubynodReady().then(() => this.refreshChatModels());
+    }
     if (this.healthTimer) clearInterval(this.healthTimer);
     this.healthTimer = setInterval(() => void this.refreshAiStatus(), 8000);
     webviewView.onDidDispose(() => {
@@ -239,7 +243,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     if (msg.type === 'startAiService') {
-      void startAiService().then(() => setTimeout(() => void this.refreshAiStatus(), 2500));
+      void startAiService(this.context.extensionPath).then(() =>
+        setTimeout(() => void this.refreshAiStatus(), 2500)
+      );
       return;
     }
     if (msg.type === 'listModels') {
@@ -383,6 +389,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   async run(text: string, modelOverride?: string, providerOverride?: string) {
     if (this.running) return;
+
+    if (!(await ensureRubynodReady())) {
+      this.post({
+        type: 'error',
+        message:
+          'Rubynod AI is offline. Run Ollama for local models, or Cmd+Shift+P → Rubynod: Start AI Service.',
+      });
+      return;
+    }
+
     this.running = true;
     this.activeTools.clear();
     this.turnAssistantText = '';

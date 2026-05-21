@@ -8,7 +8,9 @@ import {
   getStatusPollIntervalMs,
   isAutoIndexOnOpen,
   isAutoIndexOnSave,
+  isLazyStart,
 } from './settings';
+import { ensureRubynodReady } from './rubynod-ready';
 
 export class IndexService implements vscode.Disposable {
   private statusItem: vscode.StatusBarItem;
@@ -25,7 +27,7 @@ export class IndexService implements vscode.Disposable {
   }
 
   start(context: vscode.ExtensionContext): void {
-    if (isAutoIndexOnOpen()) {
+    if (isAutoIndexOnOpen() && !isLazyStart()) {
       void this.buildIndex(true);
     }
 
@@ -57,6 +59,15 @@ export class IndexService implements vscode.Disposable {
   }
 
   async buildIndex(silent = false): Promise<void> {
+    if (!(await ensureRubynodReady())) {
+      this.setStatus('$(error) AI offline', true);
+      if (!silent) {
+        vscode.window.showWarningMessage(
+          'Rubynod AI service is offline. Start it from the chat panel or Command Palette.'
+        );
+      }
+      return;
+    }
     const ws = getWorkspaceRoot();
     const body = {
       workspaceRoot: ws,

@@ -1,22 +1,43 @@
-import Database from 'better-sqlite3';
+import type { Database } from 'sql.js';
 import path from 'node:path';
 import fs from 'node:fs';
 import type { IndexChunk, IndexSymbol, IndexStats, SearchResult } from './types.js';
 import { embedText, cosineSimilarity } from './embeddings.js';
+import { getSqlEngine } from './sql-init.js';
 
 export class IndexStore {
-  private db: Database.Database;
+  private db: Database;
+  private readonly dbPath: string;
+  private dirty = false;
 
   constructor(workspaceRoot: string) {
     const dir = path.join(workspaceRoot, '.rubynod', 'index');
     fs.mkdirSync(dir, { recursive: true });
-    this.db = new Database(path.join(dir, 'chunks.db'));
-    this.db.pragma('journal_mode = WAL');
+    this.dbPath = path.join(dir, 'chunks.db');
+    const SQL = getSqlEngine();
+    if (fs.existsSync(this.dbPath)) {
+      const buf = fs.readFileSync(this.dbPath);
+      this.db = new SQL.Database(buf);
+    } else {
+      this.db = new SQL.Database();
+    }
     this.initSchema();
+    this.flush();
+  }
+
+  private flush(): void {
+    if (!this.dirty) return;
+    const data = this.db.export();
+    fs.writeFileSync(this.dbPath, Buffer.from(data));
+    this.dirty = false;
+  }
+
+  private touch(): void {
+    this.dirty = true;
   }
 
   private initSchema(): void {
-    this.db.exec(`
+    this.db.run(`
       CREATE TABLE IF NOT EXISTS meta (
         key TEXT PRIMARY KEY,
         value TEXT
@@ -51,118 +72,148 @@ export class IndexStore {
       CREATE INDEX IF NOT EXISTS idx_symbols_path ON symbols(path);
     `);
     try {
-      this.db.exec(`
+      this.db.run(`
         CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
           path, content, content='chunks', content_rowid='rowid'
         );
       `);
     } catch {
-      // FTS5 optional if sqlite build lacks it
+      // FTS5 optional
     }
+    this.touch();
+    this.flush();
   }
 
   setMeta(key: string, value: string): void {
-    this.db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(key, value);
+    this.db.run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', [key, value]);
+    this.touch();
+    this.flush();
   }
 
   getMeta(key: string): string | null {
-    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as
-      | { value: string }
-      | undefined;
+    const stmt = this.db.prepare('SELECT value FROM meta WHERE key = ?');
+    stmt.bind([key]);
+    const row = stmt.step() ? (stmt.getAsObject() as { value: string }) : undefined;
+    stmt.free();
     return row?.value ?? null;
   }
 
   clear(): void {
-    this.db.exec('DELETE FROM chunks; DELETE FROM symbols; DELETE FROM files;');
+    this.db.run('DELETE FROM chunks');
+    this.db.run('DELETE FROM symbols');
+    this.db.run('DELETE FROM files');
     try {
-      this.db.exec('DELETE FROM chunks_fts;');
+      this.db.run('DELETE FROM chunks_fts');
     } catch {
       // ignore
     }
+    this.touch();
+    this.flush();
   }
 
   upsertFile(relPath: string, mtimeMs: number, size: number): void {
-    this.db
-      .prepare(
-        `INSERT OR REPLACE INTO files (path, mtime_ms, size, indexed_at) VALUES (?, ?, ?, ?)`
-      )
-      .run(relPath, mtimeMs, size, new Date().toISOString());
+    this.db.run(
+      `INSERT OR REPLACE INTO files (path, mtime_ms, size, indexed_at) VALUES (?, ?, ?, ?)`,
+      [relPath, mtimeMs, size, new Date().toISOString()]
+    );
+    this.touch();
+    this.flush();
   }
 
   upsertChunks(chunks: IndexChunk[]): void {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO chunks (id, path, start_line, end_line, content, symbol_name, symbol_kind, embedding)
-      VALUES (@id, @path, @startLine, @endLine, @content, @symbolName, @symbolKind, @embedding)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const tx = this.db.transaction((items: IndexChunk[]) => {
-      for (const c of items) {
+    this.db.run('BEGIN TRANSACTION');
+    try {
+      for (const c of chunks) {
         const embedding = c.embedding ?? embedText(c.content);
-        stmt.run({
-          id: c.id,
-          path: c.path,
-          startLine: c.startLine,
-          endLine: c.endLine,
-          content: c.content,
-          symbolName: c.symbolName ?? null,
-          symbolKind: c.symbolKind ?? null,
-          embedding: Buffer.from(new Float32Array(embedding).buffer),
-        });
+        const blob = new Uint8Array(new Float32Array(embedding).buffer);
+        stmt.run([
+          c.id,
+          c.path,
+          c.startLine,
+          c.endLine,
+          c.content,
+          c.symbolName ?? null,
+          c.symbolKind ?? null,
+          blob,
+        ]);
       }
-    });
-    tx(chunks);
+      this.db.run('COMMIT');
+    } catch (e) {
+      this.db.run('ROLLBACK');
+      throw e;
+    } finally {
+      stmt.free();
+    }
+    this.touch();
+    this.flush();
   }
 
   upsertSymbols(symbols: IndexSymbol[]): void {
-    const del = this.db.prepare('DELETE FROM symbols WHERE path = ?');
-    const ins = this.db.prepare(`
-      INSERT INTO symbols (path, name, kind, start_line, end_line, container)
-      VALUES (@path, @name, @kind, @start_line, @end_line, @container)
-    `);
+    if (!symbols.length) return;
     const byPath = new Map<string, IndexSymbol[]>();
     for (const s of symbols) {
       if (!byPath.has(s.path)) byPath.set(s.path, []);
       byPath.get(s.path)!.push(s);
     }
-    const tx = this.db.transaction(() => {
+    const del = this.db.prepare('DELETE FROM symbols WHERE path = ?');
+    const ins = this.db.prepare(`
+      INSERT INTO symbols (path, name, kind, start_line, end_line, container)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    this.db.run('BEGIN TRANSACTION');
+    try {
       for (const [p, list] of byPath) {
-        del.run(p);
+        del.run([p]);
         for (const s of list) {
-          ins.run({
-            path: s.path,
-            name: s.name,
-            kind: s.kind,
-            start_line: s.startLine,
-            end_line: s.endLine,
-            container: s.container ?? null,
-          });
+          ins.run([s.path, s.name, s.kind, s.startLine, s.endLine, s.container ?? null]);
         }
       }
-    });
-    if (symbols.length) tx();
+      this.db.run('COMMIT');
+    } catch (e) {
+      this.db.run('ROLLBACK');
+      throw e;
+    } finally {
+      del.free();
+      ins.free();
+    }
+    this.touch();
+    this.flush();
   }
 
   removePath(filePath: string): void {
-    this.db.prepare('DELETE FROM chunks WHERE path = ?').run(filePath);
-    this.db.prepare('DELETE FROM symbols WHERE path = ?').run(filePath);
-    this.db.prepare('DELETE FROM files WHERE path = ?').run(filePath);
+    this.db.run('DELETE FROM chunks WHERE path = ?', [filePath]);
+    this.db.run('DELETE FROM symbols WHERE path = ?', [filePath]);
+    this.db.run('DELETE FROM files WHERE path = ?', [filePath]);
+    this.touch();
+    this.flush();
   }
 
   getFileMtime(relPath: string): number | null {
-    const row = this.db.prepare('SELECT mtime_ms FROM files WHERE path = ?').get(relPath) as
-      | { mtime_ms: number }
-      | undefined;
+    const stmt = this.db.prepare('SELECT mtime_ms FROM files WHERE path = ?');
+    stmt.bind([relPath]);
+    const row = stmt.step() ? (stmt.getAsObject() as { mtime_ms: number }) : undefined;
+    stmt.free();
     return row?.mtime_ms ?? null;
   }
 
   searchSymbols(query: string, limit = 20): IndexSymbol[] {
     const q = `%${query.toLowerCase()}%`;
-    return this.db
-      .prepare(
-        `SELECT path, name, kind, start_line as startLine, end_line as endLine, container
-         FROM symbols WHERE lower(name) LIKE ? OR lower(path) LIKE ?
-         LIMIT ?`
-      )
-      .all(q, q, limit) as IndexSymbol[];
+    const stmt = this.db.prepare(
+      `SELECT path, name, kind, start_line as startLine, end_line as endLine, container
+       FROM symbols WHERE lower(name) LIKE ? OR lower(path) LIKE ?
+       LIMIT ?`
+    );
+    stmt.bind([q, q, limit]);
+    const out: IndexSymbol[] = [];
+    while (stmt.step()) {
+      out.push(stmt.getAsObject() as unknown as IndexSymbol);
+    }
+    stmt.free();
+    return out;
   }
 
   hybridSearch(query: string, limit = 12, candidateLimit = 400): SearchResult[] {
@@ -182,11 +233,12 @@ export class IndexStore {
     }
 
     for (const s of symbolHits) {
-      const chunk = this.db
-        .prepare(
-          `SELECT content FROM chunks WHERE path = ? AND start_line <= ? AND end_line >= ? LIMIT 1`
-        )
-        .get(s.path, s.startLine, s.startLine) as { content: string } | undefined;
+      const stmt = this.db.prepare(
+        `SELECT content FROM chunks WHERE path = ? AND start_line <= ? AND end_line >= ? LIMIT 1`
+      );
+      stmt.bind([s.path, s.startLine, s.startLine]);
+      const chunk = stmt.step() ? (stmt.getAsObject() as { content: string }) : undefined;
+      stmt.free();
       const k = `${s.path}:${s.startLine}`;
       if (!merged.has(k)) {
         merged.set(k, {
@@ -216,14 +268,11 @@ export class IndexStore {
       start_line: number;
       end_line: number;
       content: string;
-      embedding: Buffer | null;
+      embedding: Uint8Array | null;
     }) => {
       if (!row.embedding) return;
-      const arr = new Float32Array(
-        row.embedding.buffer,
-        row.embedding.byteOffset,
-        row.embedding.byteLength / 4
-      );
+      const u8 = row.embedding;
+      const arr = new Float32Array(u8.buffer, u8.byteOffset, u8.byteLength / 4);
       const semantic = cosineSimilarity(queryEmbed, Array.from(arr));
       if (semantic > 0.08) {
         results.push({
@@ -243,29 +292,37 @@ export class IndexStore {
          WHERE path = ? AND start_line = ? LIMIT 1`
       );
       for (const c of textCandidates) {
-        const row = stmt.get(c.path, c.startLine) as {
-          path: string;
-          start_line: number;
-          end_line: number;
-          content: string;
-          embedding: Buffer | null;
-        } | undefined;
+        stmt.bind([c.path, c.startLine]);
+        const row = stmt.step()
+          ? (stmt.getAsObject() as {
+              path: string;
+              start_line: number;
+              end_line: number;
+              content: string;
+              embedding: Uint8Array | null;
+            })
+          : undefined;
+        stmt.reset();
         if (row) scoreRow(row);
       }
+      stmt.free();
     } else {
-      const rows = this.db
-        .prepare(
-          `SELECT path, start_line, end_line, content, embedding FROM chunks
-           WHERE embedding IS NOT NULL LIMIT 200`
-        )
-        .all() as Array<{
-        path: string;
-        start_line: number;
-        end_line: number;
-        content: string;
-        embedding: Buffer | null;
-      }>;
-      for (const row of rows) scoreRow(row);
+      const stmt = this.db.prepare(
+        `SELECT path, start_line, end_line, content, embedding FROM chunks
+         WHERE embedding IS NOT NULL LIMIT 200`
+      );
+      while (stmt.step()) {
+        scoreRow(
+          stmt.getAsObject() as {
+            path: string;
+            start_line: number;
+            end_line: number;
+            content: string;
+            embedding: Uint8Array | null;
+          }
+        );
+      }
+      stmt.free();
     }
 
     return results.sort((a, b) => b.score - a.score).slice(0, limit);
@@ -276,18 +333,29 @@ export class IndexStore {
     if (!tokens.length) return [];
 
     const primary = tokens[0]!;
-    const rows = this.db
-      .prepare(
-        `SELECT path, start_line, end_line, content FROM chunks
-         WHERE lower(content) LIKE '%' || ? || '%'
-         LIMIT ?`
-      )
-      .all(primary, limit) as Array<{
+    const stmt = this.db.prepare(
+      `SELECT path, start_line, end_line, content FROM chunks
+       WHERE lower(content) LIKE '%' || ? || '%'
+       LIMIT ?`
+    );
+    stmt.bind([primary, limit]);
+    const rows: Array<{
       path: string;
       start_line: number;
       end_line: number;
       content: string;
-    }>;
+    }> = [];
+    while (stmt.step()) {
+      rows.push(
+        stmt.getAsObject() as {
+          path: string;
+          start_line: number;
+          end_line: number;
+          content: string;
+        }
+      );
+    }
+    stmt.free();
 
     const results: SearchResult[] = [];
     for (const row of rows) {
@@ -310,15 +378,22 @@ export class IndexStore {
   }
 
   getStats(indexing: boolean): IndexStats {
-    const chunks = this.db.prepare('SELECT COUNT(*) as c FROM chunks').get() as { c: number };
-    const files = this.db.prepare('SELECT COUNT(*) as c FROM files').get() as { c: number };
-    const symbols = this.db.prepare('SELECT COUNT(*) as c FROM symbols').get() as { c: number };
+    const chunks = this.scalar('SELECT COUNT(*) as c FROM chunks');
+    const files = this.scalar('SELECT COUNT(*) as c FROM files');
+    const symbols = this.scalar('SELECT COUNT(*) as c FROM symbols');
     return {
-      chunkCount: chunks.c,
-      fileCount: files.c,
-      symbolCount: symbols.c,
+      chunkCount: chunks,
+      fileCount: files,
+      symbolCount: symbols,
       lastIndexedAt: this.getMeta('lastIndexedAt'),
       indexing,
     };
+  }
+
+  private scalar(sql: string): number {
+    const stmt = this.db.prepare(sql);
+    const row = stmt.step() ? (stmt.getAsObject() as { c: number }) : { c: 0 };
+    stmt.free();
+    return row.c;
   }
 }

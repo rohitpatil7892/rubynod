@@ -1,7 +1,7 @@
 {
   "nameShort": "Rubynod",
   "nameLong": "Rubynod",
-  "version": "0.1.2",
+  "version": "0.1.8",
   "applicationName": "rubynod",
   "dataFolderName": ".rubynod",
   "win32MutexName": "rubynod",
@@ -52,7 +52,7 @@
   "webviewContentExternalBaseUrlTemplate": "https://{{uuid}}.rubynod.dev/external/",
   "quality": "stable",
   "commit": "rubynod-dev",
-  "date": "2026-05-19",
+  "date": "2026-05-21",
   "rubynodAiServicePort": 3847,
   "rubynodAiServiceHost": "127.0.0.1"
 }

@@ -6,6 +6,10 @@ import { CodebaseIndexer } from '@rubynod/index';
 import type { McpHub } from '@rubynod/mcp';
 import { webSearch } from './web-search.js';
 import { appendMemory } from './memories.js';
+import { resolveWritePath } from './write-path.js';
+import { sanitizeFileContents } from './sanitize-code.js';
+import { inspectWorkspaceSetup } from './project-context.js';
+import { prepareJsonWrite } from './json-write.js';
 
 const WRITE_TOOLS = new Set(['write_file', 'search_replace', 'Shell', 'run_terminal']);
 const READ_ONLY_MODES: AgentMode[] = ['plan', 'ask'];
@@ -54,11 +58,15 @@ export function getToolDefinitions(
       function: {
         name: 'write_file',
         description:
-          'Write or create a file with the FULL file contents in the `contents` field (required). Never create an empty file when the user asked for code — put the complete implementation in `contents`.',
+          'Write or create a file with the FULL file contents in `contents`. Before creating a new file, use read_file/glob/inspect_workspace — if the file exists, read it and prefer search_replace unless replacing entirely. Use short paths (server.js, package.json). Never slugify the user message as the filename.',
         parameters: {
           type: 'object',
           properties: {
-            path: { type: 'string', description: 'Relative path from workspace root' },
+            path: {
+              type: 'string',
+              description:
+                'Relative path from workspace root (e.g. server.js, src/routes/users.ts). Not a sentence or prompt text.',
+            },
             contents: { type: 'string', description: 'Complete file text to write' },
           },
           required: ['path', 'contents'],
@@ -109,6 +117,15 @@ export function getToolDefinitions(
     {
       type: 'function' as const,
       function: {
+        name: 'inspect_workspace',
+        description:
+          'Snapshot of workspace setup: package.json, node_modules, existing server entry files, suggested run command. Call this before creating server.js or package.json.',
+        parameters: { type: 'object', properties: {} },
+      },
+    },
+    {
+      type: 'function' as const,
+      function: {
         name: 'list_dir',
         description: 'List directory contents',
         parameters: {
@@ -122,7 +139,8 @@ export function getToolDefinitions(
       type: 'function' as const,
       function: {
         name: 'run_terminal',
-        description: 'Run a shell command in the workspace',
+        description:
+          'Run a shell command in the workspace. Tell the user the command in chat first; they must Approve in the IDE (unless auto-approve). Use after setup exists (package.json, server file).',
         parameters: {
           type: 'object',
           properties: {
@@ -350,27 +368,36 @@ async function executeToolInner(
       if (!normalized) {
         return 'Error: write_file requires path and non-missing contents (use `contents` with the full file body).';
       }
-      const { path: p, contents } = normalized;
+      let { path: p, contents } = normalized;
+      contents = sanitizeFileContents(contents);
       if (!contents.trim()) {
         return 'Error: write_file refused empty contents. Call write_file again with the full file implementation in `contents`.';
       }
+      const resolved = resolveWritePath(p, contents);
+      p = resolved.path;
+      const pathNote = resolved.corrected
+        ? ` (renamed from invalid slug path to ${p})`
+        : '';
+      const abs = path.resolve(ws, p);
+      const existed = fs.existsSync(abs);
+      const old = existed ? fs.readFileSync(abs, 'utf8') : '';
+      contents = prepareJsonWrite(p, contents, old);
       if (bridge) {
-        const old = fs.existsSync(path.resolve(ws, p))
-          ? fs.readFileSync(path.resolve(ws, p), 'utf8')
-          : '';
         await bridge.writeFile(p, contents);
         ctx.onDiff?.(p, old, contents);
-        const lines = contents.split('\n').length;
-        return `Wrote ${p} (${lines} lines, ${contents.length} chars)`;
+      } else {
+        fs.mkdirSync(path.dirname(abs), { recursive: true });
+        fs.writeFileSync(abs, contents);
+        ctx.indexer?.updateFile(p);
+        ctx.onDiff?.(p, old, contents);
       }
-      const abs = path.resolve(ws, p);
-      fs.mkdirSync(path.dirname(abs), { recursive: true });
-      const old = fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : '';
-      fs.writeFileSync(abs, contents);
-      ctx.indexer?.updateFile(p);
-      ctx.onDiff?.(p, old, contents);
       const lines = contents.split('\n').length;
-      return `Wrote ${p} (${lines} lines, ${contents.length} chars)`;
+      const verb = existed ? 'Updated existing file' : 'Created new file';
+      const hint = existed
+        ? ' (file already existed — prefer read_file + search_replace next time unless replacing entirely)'
+        : '';
+      const jsonNote = /\.json$/i.test(p) ? ' (JSON pretty-printed on disk)' : '';
+      return `${verb} ${p} (${lines} lines, ${contents.length} chars)${pathNote}${hint}${jsonNote}`;
     }
     case 'search_replace': {
       const p = args.path as string;
@@ -383,13 +410,14 @@ async function executeToolInner(
         return `Patched ${p}`;
       }
       const abs = path.resolve(ws, p);
-      let content = fs.readFileSync(abs, 'utf8');
-      const before = content;
+      const original = fs.readFileSync(abs, 'utf8');
+      let content = original;
       if (replaceAll) content = content.split(oldStr).join(newStr);
       else content = content.replace(oldStr, newStr);
+      content = prepareJsonWrite(p, content, original);
       fs.writeFileSync(abs, content);
       ctx.indexer?.updateFile(p);
-      ctx.onDiff?.(p, before, content);
+      ctx.onDiff?.(p, original, content);
       return `Patched ${p}`;
     }
     case 'glob':
@@ -398,6 +426,8 @@ async function executeToolInner(
     case 'grep':
       if (bridge) return bridge.grep(args.pattern as string, args.path as string | undefined);
       return localGrep(ws, args.pattern as string, args.path as string | undefined);
+    case 'inspect_workspace':
+      return inspectWorkspaceSetup(ws);
     case 'list_dir': {
       const p = (args.path as string) || '.';
       if (bridge) return bridge.listDir(p);
