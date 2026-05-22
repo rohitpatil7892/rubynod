@@ -11,7 +11,11 @@ import {
   shouldAttachWorkspaceSetup,
   shouldRequireAgentTools,
 } from './project-context.js';
-import { isFailedToolOnlyResponse } from './sanitize-code.js';
+import {
+  isFailedToolOnlyResponse,
+  looksLikeTutorialOrToolLeak,
+  stripAssistantChatNoise,
+} from './sanitize-code.js';
 import { getCachedContextPack, setCachedContextPack } from './context-cache.js';
 import { queueIndexBuild } from './index-queue.js';
 import { ModelRouter, resolveModelConfig } from './model-router.js';
@@ -27,11 +31,13 @@ import {
   mightBeLeakedToolSyntax,
 } from './text-tool-calls.js';
 import {
+  buildSkippedReadFileHint,
   buildSkippedWriteFileHint,
   dedupePendingToolCalls,
   preparePendingToolCall,
   type PendingToolCall,
 } from './prepare-pending-tool.js';
+import { inferNewServicePath } from './service-path.js';
 import {
   thinkingLabel,
   describeToolStart,
@@ -190,7 +196,10 @@ export async function* runAgent(
   /** Per user message: track writes to block incremental tiny overwrites. */
   const writeStatsByPath = new Map<string, { chars: number; count: number }>();
   let toolsExecutedThisRun = 0;
+  let fileMutatingToolsRan = 0;
   let retriedToolJson = false;
+  let tutorialNudges = 0;
+  const maxTutorialNudges = 3;
 
   for (let turn = 0; turn < maxTurns; turn++) {
     if (thread.cancelled) {
@@ -347,35 +356,82 @@ export async function* runAgent(
     }
 
     if (pendingToolCalls.length === 0) {
-      const toolJsonFailed =
-        !isGreeting && mode === 'agent' && isFailedToolOnlyResponse(assistantText);
-      if (toolJsonFailed) {
-        if (
-          !retriedToolJson &&
-          shouldRequireAgentTools(req.message) &&
-          ollamaSupportsTools
-        ) {
-          retriedToolJson = true;
-          agentLog.warn('Tool JSON leak — retrying with tool_choice required', {
+      const needsTools =
+        !isGreeting && mode === 'agent' && shouldRequireAgentTools(req.message);
+      const tutorialOrSteps = needsTools && looksLikeTutorialOrToolLeak(rawAssistantForRecovery);
+      const toolJsonFailed = needsTools && isFailedToolOnlyResponse(assistantText);
+      const mustUseTools = needsTools && (tutorialOrSteps || toolJsonFailed);
+      const targetPath = inferNewServicePath(req.message);
+
+      if (mustUseTools) {
+        const inspectedOnly =
+          needsTools && toolsExecutedThisRun > 0 && fileMutatingToolsRan === 0;
+
+        if (inspectedOnly && tutorialNudges < maxTutorialNudges && ollamaSupportsTools) {
+          tutorialNudges++;
+          agentLog.warn('Tutorial after inspect-only tools — nudging write_file', {
             model: config.model,
+            toolsExecutedThisRun,
+            targetPath,
+            tutorialNudges,
           });
+          if (rawAssistantForRecovery.trim()) {
+            messages.push({
+              role: 'assistant',
+              content: rawAssistantForRecovery.slice(0, 8000),
+            });
+          }
+          const pathHint = targetPath ?? 'shared/<service>.service.ts';
           messages.push({
             role: 'user',
             content:
-              'Your last reply leaked tool JSON in chat instead of calling tools. ' +
-              'Use the native write_file / read_file / glob tools now. ' +
-              'Do not print {"name":"write_file"...} in the message. ' +
-              'Call write_file with full file contents for each new file.',
+              `Stop explaining Nx steps in chat. You already ran inspect tools.\n` +
+              `Next: glob("**/*.service.ts") or list_dir("libs") / list_dir("shared"), ` +
+              `read_file one existing service as a template, then ` +
+              `write_file("${pathHint}", contents=...) with FULL TypeScript (imports, class, exports). ` +
+              `No placeholders.`,
           });
           continue;
         }
-        const hint =
-          `The model (${config.model}) returned incomplete tool JSON instead of editing files. ` +
-          'For Ollama, run `ollama pull qwen2.5-coder` and set **Rubynod › Models › Chat Model** to `qwen2.5-coder`. ' +
-          'Then reload the window and retry. Or use **Rubynod: Start AI Service** and check Output → Rubynod.';
-        agentLog.warn('No tools ran; leaked tool JSON in model output', {
+
+        if (!retriedToolJson && toolsExecutedThisRun === 0 && ollamaSupportsTools) {
+          retriedToolJson = true;
+          agentLog.warn('Model replied with tutorial/steps but no tools — retrying', {
+            model: config.model,
+            tutorialOrSteps,
+            toolJsonFailed,
+          });
+          if (rawAssistantForRecovery.trim()) {
+            messages.push({
+              role: 'assistant',
+              content: rawAssistantForRecovery.slice(0, 8000),
+            });
+          }
+          const pathHint = targetPath ?? 'shared/booking-api-client.service.ts';
+          messages.push({
+            role: 'user',
+            content:
+              'Do not explain steps or Nx commands in chat. Call tools now:\n' +
+              '1) list_dir or glob to find shared/libs layout\n' +
+              '2) read_file on an existing *.service.ts if present\n' +
+              `3) write_file("${pathHint}", contents=...) with complete TypeScript\n` +
+              'No placeholders. Use native tool calls only.',
+          });
+          continue;
+        }
+
+        const hint = inspectedOnly
+          ? `The model (${config.model}) explored the repo (${toolsExecutedThisRun} tool(s)) but did not create ` +
+            `${targetPath ?? 'the service file'}. Try \`qwen2.5-coder:7b\`, reload, and ask again with: ` +
+            `"Use write_file only — no steps in chat."`
+          : `The model (${config.model}) explained what to do but did not call any tools (no files changed). ` +
+            'Try `qwen2.5-coder` (7b or latest tag), reload the window, and ask again. ' +
+            'If it keeps happening, check Output → Rubynod for Ollama errors or slow generation on :14b.';
+        agentLog.warn('Agent stopped: tutorial without completing file task', {
           assistantPreview: rawAssistantForRecovery.slice(0, 200),
           model: config.model,
+          toolsExecutedThisRun,
+          fileMutatingToolsRan,
         });
         thread.messages.push({ role: 'assistant', content: hint });
         yield { type: 'error', data: { message: hint, threadId } };
@@ -388,11 +444,17 @@ export async function* runAgent(
       break;
     }
 
-    if (assistantText.trim()) {
-      yield {
-        type: 'thought',
-        data: { text: assistantText.trim(), threadId },
-      };
+    const skipThoughtDump =
+      pendingToolCalls.length > 0 &&
+      (isFailedToolOnlyResponse(assistantText) || looksLikeTutorialOrToolLeak(assistantText));
+    if (assistantText.trim() && !skipThoughtDump) {
+      const thoughtText = stripAssistantChatNoise(assistantText).trim();
+      if (thoughtText) {
+        yield {
+          type: 'thought',
+          data: { text: thoughtText, threadId },
+        };
+      }
     }
 
     thread.messages.push({
@@ -406,7 +468,7 @@ export async function* runAgent(
 
     const toolCtx = { userMessage: req.message, assistantText };
     const validatedCalls: PendingToolCall[] = [];
-    const skippedWriteHints: string[] = [];
+    const skippedToolHints: Array<{ name: string; content: string }> = [];
 
     for (const tc of pendingToolCalls) {
       const prep = preparePendingToolCall(tc, toolCtx);
@@ -416,34 +478,42 @@ export async function* runAgent(
       }
       if (tc.name === 'write_file') {
         const hint = buildSkippedWriteFileHint(tc, req.message);
-        if (!skippedWriteHints.includes(hint)) skippedWriteHints.push(hint);
+        if (!skippedToolHints.some((h) => h.content === hint)) {
+          skippedToolHints.push({ name: 'write_file', content: hint });
+        }
+      }
+      if (tc.name === 'read_file') {
+        const hint = buildSkippedReadFileHint(req.message);
+        if (!skippedToolHints.some((h) => h.content === hint)) {
+          skippedToolHints.push({ name: 'read_file', content: hint });
+        }
       }
     }
 
     agentLog.info('Executing tools', {
       count: validatedCalls.length,
-      skipped: skippedWriteHints.length,
+      skipped: skippedToolHints.length,
       names: validatedCalls.map((t) => t.name),
     });
 
-    for (const hint of skippedWriteHints) {
-      agentLog.warn('Skipped incomplete write_file', hint.slice(0, 200));
+    for (const { name, content } of skippedToolHints) {
+      agentLog.warn('Skipped incomplete tool', { name, preview: content.slice(0, 200) });
       const synthId = `skip-${randomUUID()}`;
       thread.messages.push({
         role: 'tool',
-        content: hint,
+        content,
         toolCallId: synthId,
-        name: 'write_file',
+        name,
       });
       messages.push({
         role: 'tool',
-        content: hint,
+        content,
         toolCallId: synthId,
-        name: 'write_file',
+        name,
       });
     }
 
-    if (validatedCalls.length === 0 && skippedWriteHints.length > 0) {
+    if (validatedCalls.length === 0 && skippedToolHints.length > 0) {
       continue;
     }
 
@@ -545,6 +615,9 @@ export async function* runAgent(
       thread.messages.push(toolMsg);
       messages.push(toolMsg);
       toolsExecutedThisRun++;
+      if (ok && (tc.name === 'write_file' || tc.name === 'search_replace')) {
+        fileMutatingToolsRan++;
+      }
     }
   }
 

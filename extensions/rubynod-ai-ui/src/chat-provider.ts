@@ -12,6 +12,7 @@ import {
   isShowAiOfflineIndicator,
   isShowAiStatusBarIndicator,
   isShowExtensionVersion,
+  isShowThinkingInChat,
 } from './settings';
 import { createIdeBridge } from './bridge';
 import { pickContext, type ContextAttachment } from './context';
@@ -46,6 +47,10 @@ let toolIdCounter = 0;
 
 /** Hide leaked tool syntax (JSON, python_tag, bare write_file) before server strips it. */
 function mightBeLeakedToolText(text: string): boolean {
+  if (/(?:^|\n)#{2,3}\s+Step\s+\d+/m.test(text)) return true;
+  if (/(?:^|\n)Let's start by /im.test(text)) return true;
+  if (/(?:^|\n)To add a new shared service/im.test(text)) return true;
+  if (/(?:^|\n)We'll create a new file/im.test(text)) return true;
   if (/<\|python_tag\|>/i.test(text)) return true;
   if (/\bwrite_file\s*\(\s*contents\s*=/i.test(text)) return true;
   if (/^\s*\{\s*"(?:import|export|const|let|require)\s/m.test(text)) return true;
@@ -106,6 +111,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       providers: CHAT_PROVIDERS,
       showAiOfflineIndicator: isShowAiOfflineIndicator(),
       showExtensionVersion: isShowExtensionVersion(),
+      showThinkingInChat: isShowThinkingInChat(),
     };
   }
 
@@ -754,6 +760,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.history.setThreadId(undefined);
     }
 
+    /** Tab chips from **Tabs** apply to this message only (not every later send). */
+    const sendTargets = greeting ? [] : [...this.targetFiles];
+    if (!greeting && sendTargets.length) {
+      this.targetFiles = [];
+      this.refreshTargets();
+    }
+
     let contextItems: ContextAttachment[] = [];
     try {
       const fromMentions = greeting ? [] : await resolveParsedMentions(text);
@@ -772,9 +785,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (contextMap.size >= maxAtt) break;
         contextMap.set(`${c.type}:${c.label}`, c);
       }
-      for (const f of this.targetFiles) {
+      for (const f of sendTargets) {
         if (contextMap.size >= maxAtt) break;
-        contextMap.set(`file:${f}`, { type: 'file', label: f, content: `(edit target: ${f})` });
+        contextMap.set(`file:${f}`, {
+          type: 'file',
+          label: f,
+          path: f,
+          content: `(edit target: ${f})`,
+        });
       }
       contextItems = [...contextMap.values()];
       chatLog.debug('Context attachments', {
@@ -788,7 +806,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     const userAttachments = greeting
       ? []
-      : buildUserAttachments(contextItems, this.targetFiles);
+      : buildUserAttachments(contextItems, sendTargets);
 
     const userTs = Date.now();
     this.history.append({
@@ -811,12 +829,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       label: this.mode === 'plan' ? 'Planning' : 'Thinking',
     });
 
-    if (!greeting && (this.targetFiles.length > 0 || this.mode === 'agent')) {
+    if (!greeting && (sendTargets.length > 0 || this.mode === 'agent')) {
       saveCheckpoint('pre-edit');
     }
 
-    const composerFiles =
-      !greeting && this.targetFiles.length > 0 ? [...this.targetFiles] : undefined;
+    const composerFiles = !greeting && sendTargets.length > 0 ? [...sendTargets] : undefined;
     let errorMessage: string | undefined;
     let toolsRan = 0;
 
@@ -947,13 +964,34 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (
         !errorMessage &&
         toolsRan === 0 &&
-        /@\S+\.[a-z0-9]{1,8}/i.test(text) &&
+        /\b(create|add|implement|new)\b/i.test(text) &&
+        /\b(service|client|library|module)\b/i.test(text) &&
+        (/Let's start by|you can follow these steps|To create a new shared|^\s*\d+\.\s+/im.test(
+          this.turnAssistantText
+        ) ||
+          /^\s*\d+\.\s+/m.test(this.turnAssistantText))
+      ) {
+        errorMessage =
+          'The model stopped after a tutorial-style reply and did not run any tools. ' +
+          'Reload after updating Rubynod, then retry with **qwen2.5-coder** (7b).';
+        this.post({ type: 'error', message: errorMessage });
+      }
+      if (!errorMessage && toolsRan === 0 && /read_file path is required|Received null/i.test(this.turnAssistantText)) {
+        errorMessage =
+          'Tools failed because the model did not send a file path. Reload the window after updating Rubynod, then retry. ' +
+          'For booking-api-client, the agent should use shared/booking-api-client.service.ts.';
+      }
+      if (
+        !errorMessage &&
+        toolsRan === 0 &&
+        (/@\S+\.[a-z0-9]{1,8}/i.test(text) ||
+          /\b(?:service|client)\b/i.test(text)) &&
         (/```json|^\s*json\s*$|\{\s*"name/im.test(this.turnAssistantText) ||
           !this.turnAssistantText.trim())
       ) {
         errorMessage =
-          'No file changes were applied. The model only returned broken tool JSON. ' +
-          'Switch to **qwen2.5-coder:7b** (Settings → Rubynod → Chat model), reload the window, and retry.';
+          'No file changes were applied. The model only returned broken tool JSON or tutorial text. ' +
+          'Reload the window, then retry with **qwen2.5-coder** in Agent mode.';
         chatLog.warn('Chat finished with no tools and leaked JSON in UI', {
           preview: this.turnAssistantText.slice(0, 100),
         });

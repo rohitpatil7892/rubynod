@@ -2,11 +2,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { extractMentionedFilePaths } from './project-context.js';
+import { inferNewServicePath, inferReadFilePath } from './service-path.js';
 import {
   normalizeToolFilePath,
+  sanitizeFileContents,
   stripAssistantChatNoise,
   stripPartialToolJsonLeak,
   unescapeLiteralEscapes,
+  validateWriteContents,
+  looksLikePlaceholderStub,
+  looksLikeTutorialOrToolLeak,
 } from './sanitize-code.js';
 
 /** Tool names Ollama/local models sometimes emit as inline JSON instead of native tool_calls. */
@@ -114,6 +119,11 @@ function parseToolObject(obj: Record<string, unknown>): ParsedTextToolCall | nul
     if (typeof args.old_string !== 'string' || typeof args.new_string !== 'string') return null;
   }
 
+  if (nameRaw === 'read_file') {
+    if (typeof args.path !== 'string' || !String(args.path).trim()) return null;
+    args.path = normalizeToolFilePath(String(args.path));
+  }
+
   return {
     id: `txt-${randomUUID()}`,
     name: nameRaw,
@@ -205,10 +215,20 @@ export function extractWriteFileFallback(text: string): ParsedTextToolCall | nul
     contents = contents.replace(/^["']+/, '').replace(/["']+$/, '');
   }
 
+  const relPath = pathMatch[1]!.replace(/\\"/g, '"');
+  contents = sanitizeFileContents(contents);
+  if (
+    looksLikeTutorialOrToolLeak(contents) ||
+    looksLikePlaceholderStub(contents) ||
+    validateWriteContents(contents, relPath)
+  ) {
+    return null;
+  }
+
   return {
     id: `txt-${randomUUID()}`,
     name: 'write_file',
-    arguments: JSON.stringify({ path: pathMatch[1]!.replace(/\\"/g, '"'), contents }),
+    arguments: JSON.stringify({ path: relPath, contents }),
   };
 }
 
@@ -422,7 +442,10 @@ export function extractRecoveryToolCalls(
 
   if (/"name"\s*:\s*"read_file"/.test(assistantText)) {
     const p =
-      extractJsonStringField(assistantText, 'path') ?? extractMentionedFilePaths(userMessage)[0];
+      extractJsonStringField(assistantText, 'path') ??
+      extractMentionedFilePaths(userMessage)[0] ??
+      inferReadFilePath(userMessage) ??
+      inferNewServicePath(userMessage);
     if (p) {
       out.push({
         id: `txt-${randomUUID()}`,

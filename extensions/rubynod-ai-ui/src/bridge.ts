@@ -37,6 +37,9 @@ export function createIdeBridge(): Record<string, (...args: any[]) => Promise<un
 
   return {
     readFile: async (filePath: string, offset?: number, limit?: number) => {
+      if (typeof filePath !== 'string' || !filePath.trim()) {
+        return 'Error: read_file path is required (model sent null or empty path)';
+      }
       const abs = path.isAbsolute(filePath) ? filePath : path.join(ws(), filePath);
       if (!fs.existsSync(abs)) {
         return `Error: File not found: ${filePath}`;
@@ -52,6 +55,9 @@ export function createIdeBridge(): Record<string, (...args: any[]) => Promise<un
       }
     },
     writeFile: async (filePath: string, content: string) => {
+      if (typeof filePath !== 'string' || !filePath.trim()) {
+        return 'Error: write_file path is required (model sent null or empty path)';
+      }
       if (requiresFileApproval()) {
         return (
           `Proposed write to ${filePath} (${content.length} chars). ` +

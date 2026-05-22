@@ -17,9 +17,12 @@ function fullDocumentRange(doc: vscode.TextDocument): vscode.Range {
 
 /** Write file to disk and keep any open editor in sync (saved, not dirty). */
 export async function writeWorkspaceFile(filePath: string, content: string): Promise<void> {
+  if (typeof filePath !== 'string' || !filePath.trim()) {
+    throw new TypeError('write_file path is required (got empty or null path)');
+  }
   const abs = resolveAbs(filePath);
   const previous = fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : undefined;
-  const clean = prepareJsonWrite(filePath, sanitizeWriteContent(content), previous);
+  const clean = prepareJsonWrite(filePath, sanitizeWriteContent(content, filePath), previous);
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   const uri = vscode.Uri.file(abs);
 

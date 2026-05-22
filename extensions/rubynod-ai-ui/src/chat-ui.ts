@@ -5,6 +5,8 @@ export interface ChatWebviewConfig {
   providers: Array<{ id: string; label: string }>;
   showAiOfflineIndicator?: boolean;
   showExtensionVersion?: boolean;
+  /** Show thinking/activity box in the thread (off = composer status only). */
+  showThinkingInChat?: boolean;
   /** Baked at HTML generation so the panel works before postMessage. */
   initialOnline?: boolean;
   initialModels?: string[];
@@ -31,6 +33,7 @@ export function getChatHtml(
       providers: [{ id: 'ollama', label: 'Ollama' }],
       showAiOfflineIndicator: true,
       showExtensionVersion: true,
+      showThinkingInChat: false,
     }
   ).replace(/</g, '\\u003c');
   return `<!DOCTYPE html>
@@ -290,7 +293,7 @@ export function getChatHtml(
   .diff-card {
     border: 1px solid var(--rn-accent);
     border-radius: var(--rn-radius);
-    padding: 10px 12px; margin: 8px 0;
+    padding: 6px 10px; margin: 4px 0;
     background: var(--rn-accent-soft);
     display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     font-size: 12px;
@@ -348,7 +351,7 @@ export function getChatHtml(
     flex: 1 1 0; min-height: 0;
     overflow-y: auto; overflow-x: hidden;
     padding: 16px 12px 12px;
-    display: flex; flex-direction: column; gap: 16px;
+    display: flex; flex-direction: column; gap: 8px;
     scroll-behavior: smooth;
   }
   .empty-state {
@@ -420,20 +423,21 @@ export function getChatHtml(
   }
   .bubble-assistant { align-self: stretch; width: 100%; }
   .assistant-text {
-    padding: 2px 4px; white-space: pre-wrap; word-break: break-word;
-    font-size: 13px; line-height: 1.6;
+    padding: 0 2px; white-space: pre-wrap; word-break: break-word;
+    font-size: 13px; line-height: 1.55;
   }
   .assistant-text code {
     font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
     background: var(--vscode-textCodeBlock-background, rgba(127,127,127,0.2));
     padding: 2px 5px; border-radius: 4px; font-size: 12px;
   }
-  .assistant-text .md-p { margin: 0 0 10px; }
+  .assistant-text .md-p { margin: 0 0 6px; }
   .assistant-text .md-p:last-child { margin-bottom: 0; }
+  .assistant-text .md-p:empty { display: none; margin: 0; }
   .assistant-text pre.code-block,
   .tool-body pre.code-block {
-    margin: 10px 0;
-    padding: 10px 12px;
+    margin: 6px 0;
+    padding: 8px 10px;
     border-radius: var(--rn-radius-sm);
     border: 1px solid var(--vscode-widget-border, var(--rn-border));
     background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background, #1e1e1e));
@@ -474,9 +478,9 @@ export function getChatHtml(
     border: 1px solid var(--rn-border);
     border-radius: var(--rn-radius);
     background: var(--rn-surface-2);
-    margin: 4px 0 12px;
+    margin: 2px 0 6px;
     overflow: hidden;
-    max-height: 200px;
+    max-height: 120px;
     transition: max-height 0.28s ease, opacity 0.25s ease, margin 0.28s ease, border-width 0.2s ease;
   }
   .activity-panel.done { opacity: 0.92; }
@@ -600,16 +604,16 @@ export function getChatHtml(
 
   .tool-card {
     border: 1px solid var(--rn-border);
-    border-radius: var(--rn-radius);
-    margin: 8px 0; overflow: hidden;
+    border-radius: var(--rn-radius-sm);
+    margin: 3px 0; overflow: hidden;
     background: var(--rn-surface-2);
     transition: border-color 0.2s;
   }
   .tool-card.running { border-color: var(--rn-accent); box-shadow: 0 0 0 1px var(--rn-accent-soft); }
   .tool-header {
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px 12px; cursor: pointer; user-select: none;
-    font-size: 12px;
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; cursor: pointer; user-select: none;
+    font-size: 11px;
   }
   .tool-header:hover { background: var(--rn-accent-soft); }
   .tool-icon {
@@ -1339,7 +1343,7 @@ try {
   }
 
   function renderInlineMarkdown(text) {
-    if (!text) return '';
+    if (!text || !String(text).trim()) return '';
     let s = escapeHtml(text);
     s = s.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
     s = s.replace(new RegExp(String.fromCharCode(96) + '([^' + String.fromCharCode(96) + '\\\\n]+)' + String.fromCharCode(96), 'g'), '<code>$1</code>');
@@ -1367,11 +1371,11 @@ try {
         html += '<pre class="code-block">';
         if (lang) html += '<span class="code-lang">' + escapeHtml(lang) + '</span>';
         html += '<code>' + highlightCode(code, lang) + '</code></pre>';
-      } else if (parts[i]) {
+      } else if (parts[i] && String(parts[i]).trim()) {
         html += renderInlineMarkdown(parts[i]);
       }
     }
-    el.innerHTML = html || '<p class="md-p"></p>';
+    el.innerHTML = html.trim() ? html : '';
   }
 
   function pickMention(idx) {
@@ -1457,7 +1461,12 @@ try {
     state.running = running;
   }
 
+  function thinkingInChat() {
+    return !!RN.showThinkingInChat;
+  }
+
   function ensureActivityPanel() {
+    if (!thinkingInChat()) return null;
     if (state.activityPanel) return state.activityPanel;
     hideEmpty();
     const panel = document.createElement('div');
@@ -1522,14 +1531,14 @@ try {
   }
 
   function finishActivityPanel() {
+    if (!thinkingInChat() || !state.activityPanel) return;
     collapseThinkingPanel();
-    setTimeout(function() {
-      hideThinkingPanel();
-    }, 1200);
+    hideThinkingPanel();
   }
 
   function upsertActivityStep(id, step, label, detail, status) {
     const panel = ensureActivityPanel();
+    if (!panel) return;
     const stepsEl = panel.querySelector('.activity-steps');
     let row = state.activitySteps[id];
     const iconClass = step || 'think';
@@ -1564,8 +1573,9 @@ try {
   }
 
   function addThought(text) {
-    if (!text || !text.trim()) return;
+    if (!thinkingInChat() || !text || !text.trim()) return;
     const panel = ensureActivityPanel();
+    if (!panel) return;
     panel.classList.add('has-thought');
     setThinkingBanner('◆ Thinking…');
     let block = panel.querySelector('.activity-thought');
@@ -1613,9 +1623,20 @@ try {
     scroll();
   }
 
+  function isTutorialChunk(delta) {
+    if (!delta) return true;
+    const d = String(delta);
+    if (/^#{2,3}\s+Step\s+\d/m.test(d)) return true;
+    if (/Let's start by|To add a new shared service|We'll create a new file named/i.test(d)) return true;
+    if (/^\s*\{\s*"name"\s*:\s*"(?:read_file|write_file)"/m.test(d)) return true;
+    return false;
+  }
+
   function appendText(delta) {
+    if (isTutorialChunk(delta)) return;
     if (!state.hasAssistantOutput) {
       state.hasAssistantOutput = true;
+      if (thinkingInChat() && state.activityPanel) collapseThinkingPanel();
     }
     const el = ensureAssistant();
     state.assistantMarkdown += delta;
@@ -1628,7 +1649,7 @@ try {
     state.toolArgs[id] = args || {};
     const kind = toolKind(name);
     const card = document.createElement('div');
-    card.className = 'tool-card running expanded';
+    card.className = 'tool-card running';
     card.dataset.id = id;
     card.innerHTML =
       '<div class="tool-header">' +
@@ -1652,6 +1673,12 @@ try {
   function endTool(id, name, result, ok, argsOverride) {
     const card = state.toolCards[id];
     if (!card) return;
+    if (ok === false) {
+      card.remove();
+      delete state.toolCards[id];
+      scroll();
+      return;
+    }
     card.classList.remove('running');
     const status = card.querySelector('.tool-status');
     status.className = 'tool-status';
@@ -1675,7 +1702,7 @@ try {
     const ok = entry.ok !== false;
     const kind = toolKind(name);
     const card = document.createElement('div');
-    card.className = 'tool-card expanded';
+    card.className = 'tool-card';
     card.dataset.id = entry.id;
     card.innerHTML =
       '<div class="tool-header">' +
@@ -1813,13 +1840,17 @@ try {
         state.activitySteps = {};
         state.thinkingHidden = false;
         state.hasAssistantOutput = false;
-        ensureActivityPanel();
-        upsertActivityStep('think-live', 'think', m.label || '◆ Thinking…', '', 'active');
-        setThinkingBanner(m.label || '◆ Thinking…');
+        if (thinkingInChat()) {
+          ensureActivityPanel();
+          upsertActivityStep('think-live', 'think', m.label || '◆ Thinking…', '', 'active');
+          setThinkingBanner(m.label || '◆ Thinking…');
+        }
         setStatus('◆ Thinking…', true);
         break;
       case 'activity':
-        upsertActivityStep(m.id, m.step || 'think', m.label, m.detail, m.status || 'active');
+        if (thinkingInChat()) {
+          upsertActivityStep(m.id, m.step || 'think', m.label, m.detail, m.status || 'active');
+        }
         setStatus(m.label || 'Working…', true);
         break;
       case 'thought':
@@ -1862,8 +1893,10 @@ try {
         state.assistantEl = null;
         break;
       case 'error':
-        collapseThinkingPanel();
-        setTimeout(function() { hideThinkingPanel(); }, 1200);
+        if (thinkingInChat() && state.activityPanel) {
+          collapseThinkingPanel();
+          hideThinkingPanel();
+        }
         ensureAssistant();
         appendText('\\n\\n⚠ ' + (m.message || 'Error'));
         setStatus('', false);

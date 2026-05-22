@@ -2,7 +2,7 @@
   "name": "rubynod-ai-ui",
   "displayName": "Rubynod AI",
   "description": "Open-source AI coding assistant: agent chat, Ollama & cloud models, file edits, diff review, @ context, indexing, inline edit & tab complete.",
-  "version": "0.1.48",
+  "version": "0.1.56",
   "publisher": "RohitPatil",
   "license": "MIT",
   "icon": "media/icon-128.png",
@@ -348,6 +348,12 @@
             "markdownDescription": "Show the Rubynod extension **version** in the chat composer (e.g. `v0.1.41`). Set to **false** to hide.",
             "order": 10
           },
+          "rubynod.ui.showThinkingInChat": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "Show the **Thinking** box inside the chat thread during agent runs. Off by default — use the slim status line under the input instead (saves space).",
+            "order": 11
+          },
           "rubynod.models.tabModel": {
             "type": "string",
             "default": "",
@@ -420,14 +426,14 @@
           },
           "rubynod.chat.includeActiveFile": {
             "type": "boolean",
-            "default": true,
-            "description": "Attach the active editor file (and selection) to every message.",
+            "default": false,
+            "markdownDescription": "Attach the **active editor** file to every message. Off by default — use **Tabs** or `@file` when you want a file.",
             "order": 21
           },
           "rubynod.chat.includeOpenFiles": {
             "type": "boolean",
             "default": false,
-            "description": "Also attach paths of all open editor tabs (lightweight list).",
+            "markdownDescription": "Attach a list of **all open tabs** to every message. Off by default — use the **Tabs** button to add open files only when you want.",
             "order": 22
           },
           "rubynod.chat.maxFileContextChars": {
@@ -563,7 +569,7 @@
           "rubynod.ai.includeActiveFile": {
             "type": "boolean",
             "deprecationMessage": "Use rubynod.chat.includeActiveFile instead.",
-            "default": true
+            "default": false
           }
         }
       },

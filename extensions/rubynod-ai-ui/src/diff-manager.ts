@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getWorkspaceRoot, requiresFileApproval } from './settings';
 import { writeWorkspaceFile } from './file-write';
+import { sanitizeWriteContent } from './sanitize-write';
 
 export interface PendingDiff {
   file: string;
@@ -37,7 +38,17 @@ function ensurePendingProvider(): void {
 }
 
 export async function addPendingDiff(diff: PendingDiff): Promise<void> {
-  const entry: PendingDiff = { ...diff, applied: false };
+  let newContent = diff.newContent;
+  try {
+    newContent = sanitizeWriteContent(diff.newContent, diff.file);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    void vscode.window.showErrorMessage(
+      `Rubynod: refused proposed write to ${diff.file} — ${msg}`
+    );
+    return;
+  }
+  const entry: PendingDiff = { ...diff, newContent, applied: false };
   pending.set(diff.file, entry);
 
   if (!requiresFileApproval()) {

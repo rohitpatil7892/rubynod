@@ -5,10 +5,156 @@ export function normalizeToolFilePath(filePath: string): string {
   return p;
 }
 
+/** Stub comments models write instead of real implementations. */
+export function looksLikePlaceholderStub(contents: string): boolean {
+  const c = contents.trim();
+  if (!c) return true;
+  if (
+    /placeholder|implement your logic here|you can implement|TODO:\s*implement/i.test(c)
+  ) {
+    return true;
+  }
+  const substantive = c.split('\n').filter((line) => {
+    const t = line.trim();
+    if (!t) return false;
+    if (/^\/\//.test(t) || /^\/\*/.test(t) || /^\*\//.test(t) || /^\*/.test(t)) return false;
+    return true;
+  });
+  if (substantive.length === 0) return true;
+  if (substantive.length <= 2 && c.length < 200) {
+    const onlyNoise = substantive.every((t) => /^[\}\]"'`;,\s]+$/.test(t));
+    if (onlyNoise) return true;
+  }
+  return false;
+}
+
+/** Trailing `}}`, `"`, or backticks from broken tool JSON pasted into file bodies. */
+export function stripBrokenJsonTail(contents: string): string {
+  let s = contents.trim();
+  for (let pass = 0; pass < 8; pass++) {
+    const before = s;
+    s = s.replace(/["'`]+\s*$/g, '');
+    s = s.replace(/,\s*"file"\s*:\s*"[^"]*"\s*\}\s*\}\s*$/g, '');
+    s = s.replace(/"\s*\}\s*\}\s*$/g, '');
+    s = s.replace(/\}\s*\}\s*[`']*\s*$/g, '');
+    s = s.replace(/;\s*"\s*$/g, ';');
+    const lines = s.split('\n');
+    while (lines.length > 0 && /^[\s\}\]"'`]+$/.test(lines[lines.length - 1] ?? '')) {
+      lines.pop();
+    }
+    s = lines.join('\n').trim();
+    if (s === before) break;
+  }
+  return s;
+}
+
+/** Leaked tool-call JSON (structure is predictable — not open-ended prose). */
+export function looksLikeToolCallJsonLeak(contents: string): boolean {
+  const c = contents.trim();
+  if (/^\{\s*"name"\s*:\s*"(?:write_file|read_file|search_replace|glob|grep)"/m.test(c)) {
+    return true;
+  }
+  if (/"name"\s*:\s*"(?:write_file|read_file|search_replace)"[\s\S]*"arguments"\s*:\s*\{/.test(c)) {
+    return true;
+  }
+  if (/```json\s*\n\s*\{[\s\S]*"name"\s*:\s*"/m.test(c)) return true;
+  if (/\n\}\s*\n```\s*\n[\s\S]*#{1,3}\s+/m.test(c)) return true;
+  return false;
+}
+
+function countRegexMatches(re: RegExp, text: string): number {
+  return (text.match(re) ?? []).length;
+}
+
+function hasSubstantiveSourceTokens(text: string): boolean {
+  return /\b(?:import|export|require|class\s+\w|function\s+\w|interface\s+\w|type\s+\w|const\s+\w+\s*=|module\.exports|def\s+\w+\s*\(|package\s+\w+)\b/.test(
+    text
+  );
+}
+
+/**
+ * Heuristic score for instructional chat prose (not a phrase allowlist).
+ * High score = numbered steps, headings, "you can/let's", guide opener, little real code.
+ */
+export function tutorialProseScore(contents: string): number {
+  const c = contents.trim();
+  if (!c) return 0;
+
+  let score = 0;
+
+  const numberedSteps = countRegexMatches(/(?:^|\n)\s*\d+\.\s+\S/gim, c);
+  if (numberedSteps >= 2) score += 3;
+  else if (numberedSteps === 1) score += 1;
+
+  const markdownHeadings = countRegexMatches(/(?:^|\n)#{1,3}\s+\S/gim, c);
+  if (markdownHeadings >= 1) score += 2;
+  if (/(?:^|\n)#{1,3}\s*step\s*\d*/im.test(c)) score += 2;
+
+  const instructional = countRegexMatches(
+    /\b(?:you can|let's|we'll|we will|follow these steps|here(?:'s| is) how|make sure to|(?:^|\n)\s*(?:first|next|then|finally)[,:]?\s)/gim,
+    c
+  );
+  if (instructional >= 2) score += 2;
+  else if (instructional === 1) score += 1;
+
+  if (/^(?:to\s+)?(?:add|create|implement|set up|build|generate)\s+(?:a\s+)?(?:new\s+)?/im.test(c)) {
+    score += 2;
+  }
+
+  const lines = c.split('\n').filter((l) => l.trim());
+  const codeLikeLines = lines.filter((l) =>
+    /^\s*(?:import|export|const|let|var|function|class|interface|type|#include|def |package |public |private |@Injectable|@Component)\b/.test(
+      l
+    )
+  ).length;
+
+  if (lines.length >= 4 && codeLikeLines === 0 && c.length > 100) score += 3;
+  if (lines.length >= 3 && codeLikeLines <= 1 && numberedSteps >= 1) score += 2;
+  if (/\blet's start\b/i.test(c) && !hasSubstantiveSourceTokens(c)) score += 2;
+
+  return score;
+}
+
+/** Tutorial / step-by-step chat the model pasted instead of source or tool calls. */
+export function looksLikeTutorialProse(contents: string, threshold = 4): boolean {
+  return tutorialProseScore(contents) >= threshold;
+}
+
+/** Tool JSON leak or tutorial prose (dynamic heuristics + structural JSON checks). */
+export function looksLikeTutorialOrToolLeak(contents: string): boolean {
+  return looksLikeToolCallJsonLeak(contents) || looksLikeTutorialProse(contents);
+}
+
 /** Reject model output that is pseudo-JSON or wrong language, not real source. */
 export function validateWriteContents(contents: string, relPath: string): string | null {
   const c = contents.trim();
   if (!c) return 'empty contents';
+
+  if (looksLikeTutorialOrToolLeak(c)) {
+    return 'contents are chat/tutorial text or leaked tool JSON — use write_file with only real source code';
+  }
+
+  if (looksLikePlaceholderStub(c)) {
+    return 'contents are placeholder comments only — write a complete implementation (imports, exports, real logic)';
+  }
+
+  if (
+    /\}\s*\}\s*[`'"]*\s*$/m.test(c) &&
+    !/\bexport\s+(?:default\s+)?(?:class|function|const|interface|type)\b/.test(c) &&
+    !/\bmodule\.exports\b/.test(c)
+  ) {
+    return 'contents end with broken JSON/tool braces (}}) — send only valid source code in contents';
+  }
+
+  if (/\.service\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(relPath)) {
+    const substantive = c.split('\n').filter((line) => {
+      const t = line.trim();
+      return t && !/^\/\//.test(t) && !/^\/\*/.test(t) && !/^\*/.test(t);
+    });
+    if (substantive.length < 5) {
+      return 'service file is too short — include real TypeScript/JavaScript (imports, class or functions, exports), not comments only';
+    }
+  }
 
   if (/^\{\s*"(?:import|export|const|let|var|require|def\s)/m.test(c)) {
     return 'contents look like broken JSON-wrapped code (starts with {"import / {"export) — send raw source only';
@@ -54,7 +200,7 @@ export function stripTrailingToolJsonGarbage(contents: string): string {
   s = s.replace(/",\s*"file"\s*:\s*"[^"]*"\s*\}\}\s*$/g, '');
   s = s.replace(/"\}\}\s*$/g, '');
   s = s.replace(/\}\}\s*$/g, '');
-  return s.trim();
+  return stripBrokenJsonTail(s);
 }
 
 /** Reject tiny overwrites of large existing files (incremental "Added GET..." spam). */
@@ -119,7 +265,17 @@ export function sanitizeFileContents(contents: string): string {
     s = s.replace(/^\{\s*/, '');
   }
 
-  return s;
+  // Truncate after code fence + tutorial (model leaked Steps 2–3 into the file)
+  const tutorialCut = s.search(
+    /\n(?:```\s*\n)?#{2,3}\s+Step\s+\d|\n\}\s*\n```\s*\n[\s\S]{0,200}#{2,3}\s+Step|\n```\s*\n\s*\{[\s\S]{0,400}"name"\s*:\s*"read_file"/m
+  );
+  if (tutorialCut > 40) s = s.slice(0, tutorialCut).trim();
+
+  // Trailing broken export + JSON garbage
+  s = s.replace(/\s*"\s*\n\s*\}\s*\n\}\s*```[\s\S]*$/m, '');
+  s = s.replace(/\s*;\s*"\s*\n\s*\}\s*\}\s*```[\s\S]*$/m, ';');
+
+  return s.trim();
 }
 
 /** Models paste full package.json in chat instead of editing the @mentioned file. */

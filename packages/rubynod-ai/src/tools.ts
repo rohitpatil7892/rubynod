@@ -8,6 +8,8 @@ import { webSearch } from './web-search.js';
 import { appendMemory } from './memories.js';
 import { resolveWritePath } from './write-path.js';
 import {
+  looksLikePlaceholderStub,
+  looksLikeTutorialOrToolLeak,
   normalizeToolFilePath,
   sanitizeFileContents,
   validateDestructiveOverwrite,
@@ -18,6 +20,7 @@ import {
   inspectWorkspaceSetup,
   isWritePathAllowedForMessage,
 } from './project-context.js';
+import { inferReadFilePath } from './service-path.js';
 import { prepareJsonWrite } from './json-write.js';
 import { ensurePackageJsonDependencies } from './package-deps.js';
 import { toolLog } from './logger.js';
@@ -372,7 +375,19 @@ async function executeToolInner(
 
   switch (name) {
     case 'read_file': {
-      const p = args.path as string;
+      let p =
+        typeof args.path === 'string' && String(args.path).trim()
+          ? normalizeToolFilePath(String(args.path))
+          : '';
+      if (!p && ctx.userMessage) {
+        p = inferReadFilePath(ctx.userMessage) ?? '';
+      }
+      if (!p) {
+        return (
+          'Error: read_file requires path (model sent null or empty). ' +
+          'Use a real path such as shared/booking-api-client.service.ts or package.json.'
+        );
+      }
       if (bridge) {
         return bridge.readFile(p, args.offset as number | undefined, args.limit as number | undefined);
       }
@@ -414,6 +429,18 @@ async function executeToolInner(
         );
       }
       contents = sanitizeFileContents(contents);
+      if (looksLikeTutorialOrToolLeak(contents)) {
+        return (
+          'Error: write_file refused — contents are chat/tutorial text or leaked tool JSON, not source. ' +
+          'Call write_file again with ONLY the file body (no ### Step, no ```json tool blocks).'
+        );
+      }
+      if (looksLikePlaceholderStub(contents)) {
+        return (
+          'Error: write_file refused — contents are placeholder comments only, not a real implementation. ' +
+          'Call read_file on similar files in the repo, then write_file with complete TypeScript/JavaScript source.'
+        );
+      }
       const invalid = validateWriteContents(contents, p);
       if (invalid) {
         return `Error: write_file refused — ${invalid}. Use read_file on the target, then write_file with complete valid source (path without @ prefix).`;

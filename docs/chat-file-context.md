@@ -106,7 +106,7 @@ Attached files/folders show as chips above the input:
 
 ```json
 {
-  "rubynod.chat.includeActiveFile": true,
+  "rubynod.chat.includeActiveFile": false,
   "rubynod.chat.includeOpenFiles": false,
   "rubynod.chat.maxFileContextChars": 48000,
   "rubynod.chat.maxContextAttachments": 20

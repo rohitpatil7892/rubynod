@@ -28,8 +28,8 @@ Open in VS Code: **Cmd+,** → search `rubynod`, or run **Rubynod: Open Settings
 
 ### Chat (`rubynod.chat.*`)
 - **defaultMode** — `agent` | `plan` | `ask` | `debug`
-- **includeActiveFile** — attach current file each message
-- **includeOpenFiles** — list open tabs
+- **includeActiveFile** — attach current file each message (default **false**; use **Tabs** or `@file`)
+- **includeOpenFiles** — list open tabs each message (default **false**)
 - **maxFileContextChars** — truncate large @files
 - **maxContextAttachments** — cap chips per message
 

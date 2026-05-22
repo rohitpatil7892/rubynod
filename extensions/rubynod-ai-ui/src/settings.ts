@@ -93,7 +93,7 @@ export function getTabDebounceMs(): number {
 }
 
 export function isIncludeActiveFile(): boolean {
-  return cfg('chat.includeActiveFile', true);
+  return cfg('chat.includeActiveFile', false);
 }
 
 export function isIncludeOpenFiles(): boolean {
@@ -138,6 +138,11 @@ export function isShowAiStatusBarIndicator(): boolean {
 /** Show extension version (e.g. v0.1.41) in the chat composer. Set false to hide. */
 export function isShowExtensionVersion(): boolean {
   return cfg('ui.showExtensionVersion', true);
+}
+
+/** Show thinking/activity box inside the chat thread. Off = status line in composer only (more space). */
+export function isShowThinkingInChat(): boolean {
+  return cfg('ui.showThinkingInChat', false);
 }
 
 export function isAutoIndexOnSave(): boolean {

@@ -1,6 +1,11 @@
-import { extractSearchReplaceFallback, extractWriteFileFallback } from './text-tool-calls.js';
+import {
+  extractJsonStringField,
+  extractSearchReplaceFallback,
+  extractWriteFileFallback,
+} from './text-tool-calls.js';
 import { normalizeToolFilePath } from './sanitize-code.js';
 import { extractMentionedFilePaths } from './project-context.js';
+import { inferNewServicePath, inferReadFilePath } from './service-path.js';
 import { normalizeWriteFileArgs } from './tools.js';
 
 export interface PendingToolCall {
@@ -75,8 +80,17 @@ export function preparePendingToolCall(
 
   if (name === 'write_file') {
     if (typeof args.path !== 'string' || !String(args.path).trim()) {
-      const inferred = inferMentionedFilePath(ctx.userMessage ?? '');
-      if (inferred) args = { ...args, path: inferred };
+      const msg = ctx.userMessage ?? '';
+      const creatingNew =
+        /\b(?:add|create|new)\s+(?:a\s+)?(?:shared\s+)?(?:service|module|client)\b/i.test(msg) ||
+        /\b[a-z][a-z0-9-]*-api-client\b/i.test(msg);
+      const servicePath = creatingNew ? inferNewServicePath(msg) : undefined;
+      if (servicePath) {
+        args = { ...args, path: servicePath };
+      } else if (!creatingNew) {
+        const inferred = inferMentionedFilePath(msg);
+        if (inferred) args = { ...args, path: inferred };
+      }
     }
     const repaired = tryRepairWriteFileArgs(args, ctx.assistantText);
     if (!repaired) return null;
@@ -87,6 +101,29 @@ export function preparePendingToolCall(
     const repaired = tryRepairSearchReplaceArgs(args, ctx.assistantText);
     if (!repaired) return null;
     return { ...tc, name, arguments: JSON.stringify(repaired) };
+  }
+
+  if (name === 'read_file') {
+    let p =
+      typeof args.path === 'string' && String(args.path).trim()
+        ? normalizeToolFilePath(String(args.path))
+        : '';
+    if (!p && ctx.assistantText) {
+      const fromJson = extractJsonStringField(ctx.assistantText, 'path');
+      if (fromJson?.trim()) p = normalizeToolFilePath(fromJson);
+    }
+    if (!p) {
+      const msg = ctx.userMessage ?? '';
+      p =
+        inferMentionedFilePath(msg) ??
+        inferReadFilePath(msg) ??
+        '';
+    }
+    if (!p) return null;
+    const out: Record<string, unknown> = { path: p };
+    if (typeof args.offset === 'number') out.offset = args.offset;
+    if (typeof args.limit === 'number') out.limit = args.limit;
+    return { ...tc, name, arguments: JSON.stringify(out) };
   }
 
   if (!tc.arguments?.trim() || tc.arguments.trim() === '{}') {
@@ -137,6 +174,19 @@ export function dedupePendingToolCalls(calls: PendingToolCall[]): PendingToolCal
   }
 
   return [...rest, ...writeByPath.values(), ...searchByPath.values()];
+}
+
+export function buildSkippedReadFileHint(userMessage: string): string {
+  const path =
+    inferMentionedFilePath(userMessage) ??
+    inferReadFilePath(userMessage) ??
+    inferNewServicePath(userMessage) ??
+    'shared/booking-api-client.service.ts';
+  return (
+    `Error: read_file requires a path (model sent null). ` +
+    `Try read_file('${path}'), glob('**/*.service.ts', 'shared'), or list_dir('shared'). ` +
+    `Then write_file with full source in contents.`
+  );
 }
 
 export function buildSkippedWriteFileHint(
