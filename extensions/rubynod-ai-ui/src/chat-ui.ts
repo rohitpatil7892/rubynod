@@ -3,6 +3,15 @@ export interface ChatWebviewConfig {
   serviceUrl: string;
   ollamaHost: string;
   providers: Array<{ id: string; label: string }>;
+  showAiOfflineIndicator?: boolean;
+  showExtensionVersion?: boolean;
+  /** Baked at HTML generation so the panel works before postMessage. */
+  initialOnline?: boolean;
+  initialModels?: string[];
+  initialModelLabels?: Record<string, string>;
+  initialCurrent?: string;
+  initialProvider?: string;
+  initialError?: string;
 }
 
 /** Rubynod chat webview */
@@ -20,13 +29,15 @@ export function getChatHtml(
       serviceUrl,
       ollamaHost,
       providers: [{ id: 'ollama', label: 'Ollama' }],
+      showAiOfflineIndicator: true,
+      showExtensionVersion: true,
     }
   ).replace(/</g, '\\u003c');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src ${serviceUrl} ${ollamaHost} http://127.0.0.1:* http://localhost:* ws://127.0.0.1:*;" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src ${serviceUrl} ${ollamaHost} http://127.0.0.1:* http://localhost:* https://127.0.0.1:* https://localhost:* ws://127.0.0.1:* ws://localhost:*;" />
 <style>
   :root {
     --rn-accent: var(--vscode-focusBorder, #0078d4);
@@ -356,8 +367,15 @@ export function getChatHtml(
     font-size: 10px; font-family: inherit;
   }
 
+  .bubble-user-wrap {
+    align-self: flex-end;
+    max-width: 88%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  }
   .bubble-user {
-    align-self: flex-end; max-width: 88%;
     background: linear-gradient(135deg, var(--rn-accent-soft), transparent);
     border: 1px solid var(--rn-border);
     border-right: 2px solid var(--rn-accent);
@@ -367,6 +385,32 @@ export function getChatHtml(
     font-size: 13px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.12);
   }
+  .bubble-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: flex-end;
+    max-width: 100%;
+  }
+  .msg-attachment {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--rn-border);
+    background: var(--rn-surface-2);
+    color: var(--rn-muted);
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .msg-attachment .msg-att-icon { opacity: 0.85; flex-shrink: 0; }
+  .msg-attachment.tab { border-color: color-mix(in srgb, #fcd34d 40%, var(--rn-border)); color: #fcd34d; }
+  .msg-attachment.file { border-color: color-mix(in srgb, var(--rn-accent) 35%, var(--rn-border)); color: var(--rn-text); }
+  .msg-attachment.folder { border-color: color-mix(in srgb, #93c5fd 35%, var(--rn-border)); color: #93c5fd; }
   .bubble-user .at-mention {
     color: var(--rn-accent);
     background: color-mix(in srgb, var(--rn-accent) 18%, transparent);
@@ -432,8 +476,43 @@ export function getChatHtml(
     background: var(--rn-surface-2);
     margin: 4px 0 12px;
     overflow: hidden;
+    max-height: 200px;
+    transition: max-height 0.28s ease, opacity 0.25s ease, margin 0.28s ease, border-width 0.2s ease;
   }
   .activity-panel.done { opacity: 0.92; }
+  .activity-panel.hiding {
+    max-height: 0 !important;
+    opacity: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    border-width: 0;
+    pointer-events: none;
+  }
+  .thinking-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: color-mix(in srgb, var(--rn-accent) 12%, var(--rn-surface-2));
+    border-bottom: 1px solid var(--rn-border);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--rn-text);
+  }
+  .thinking-banner .spinner { width: 12px; height: 12px; flex-shrink: 0; }
+  .thinking-banner-label { flex: 1; min-width: 0; }
+  .activity-panel.collapsed .activity-steps,
+  .activity-panel.collapsed .activity-thought {
+    display: none;
+  }
+  .activity-panel.collapsed .thinking-banner {
+    padding: 6px 12px;
+    font-size: 11px;
+    color: var(--rn-muted);
+    border-bottom: none;
+    cursor: pointer;
+  }
+  .activity-panel.collapsed .thinking-banner .spinner { display: none; }
   .activity-header {
     display: flex; align-items: center; gap: 8px;
     padding: 8px 12px;
@@ -442,8 +521,19 @@ export function getChatHtml(
     color: var(--rn-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
+    cursor: default;
+    user-select: none;
   }
+  .activity-panel.has-thought .activity-header { cursor: pointer; }
+  .activity-panel.has-thought .activity-header:hover { color: var(--rn-text); background: var(--rn-accent-soft); }
   .activity-header .spinner { width: 10px; height: 10px; }
+  .activity-header .thinking-chevron {
+    margin-left: auto;
+    font-size: 10px;
+    opacity: 0.6;
+    transition: transform 0.2s ease;
+  }
+  .activity-panel.expanded-thought .activity-header .thinking-chevron { transform: rotate(90deg); }
   .activity-steps { padding: 6px 0; }
   .activity-step {
     display: flex; gap: 10px; align-items: flex-start;
@@ -478,12 +568,30 @@ export function getChatHtml(
     border-radius: var(--rn-radius-sm);
     background: var(--rn-surface);
     border: 1px solid var(--rn-border);
-    font-size: 11px; line-height: 1.5;
+    font-size: 11px; line-height: 1.45;
     color: var(--rn-muted);
     white-space: pre-wrap;
     word-break: break-word;
-    max-height: 120px;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    max-height: 4.35em;
+    transition: max-height 0.25s ease, -webkit-line-clamp 0.2s ease;
+  }
+  .activity-panel.expanded-thought .activity-thought {
+    -webkit-line-clamp: unset;
+    display: block;
+    max-height: 140px;
     overflow-y: auto;
+  }
+  .activity-panel.hiding {
+    max-height: 0 !important;
+    opacity: 0;
+    margin: 0;
+    padding: 0;
+    border-width: 0;
+    overflow: hidden;
   }
   @keyframes pulse {
     0%, 100% { opacity: 0.35; transform: scale(0.85); }
@@ -578,6 +686,7 @@ export function getChatHtml(
     flex-shrink: 0;
   }
   .ai-status.checking .ai-status-dot { animation: pulse 1s ease-in-out infinite; }
+  .ai-status.hidden-indicator { display: none !important; }
   .ext-version {
     font-size: 9px;
     color: var(--rn-muted);
@@ -585,6 +694,7 @@ export function getChatHtml(
     margin-left: 6px;
     flex-shrink: 0;
   }
+  .ext-version.hidden-indicator { display: none !important; }
   #status {
     flex: 1;
     min-width: 0;
@@ -764,11 +874,11 @@ export function getChatHtml(
     <div id="mention-box"></div>
     <div class="composer-status-row" id="composer-status-row">
       <div id="status"></div>
-      <button type="button" id="ai-status" class="ai-status checking" title="Starting Rubynod AI…">
+      <button type="button" id="ai-status" class="ai-status checking${rn?.showAiOfflineIndicator ? '' : ' hidden-indicator'}" title="Connecting to Rubynod AI…">
         <span class="ai-status-dot"></span>
-        <span class="ai-status-label">Starting…</span>
+        <span class="ai-status-label">Connecting…</span>
       </button>
-      <span id="ext-version" class="ext-version" title="Extension version">${ver}</span>
+      <span id="ext-version" class="ext-version${rn?.showExtensionVersion === false ? ' hidden-indicator' : ''}" title="Extension version">${ver}</span>
     </div>
     <div class="composer-box">
       <div class="composer-input-wrap">
@@ -807,9 +917,15 @@ export function getChatHtml(
     </div>
   </div>
 <script nonce="${nonce}">
+try {
+  window.__rubynodVsCode = acquireVsCodeApi();
+  window.__rubynodVsCode.postMessage({ type: 'webviewReady' });
+} catch (e) { console.error('[rubynod] early boot', e); }
+</script>
+<script nonce="${nonce}">
 (function() {
   try {
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__rubynodVsCode || acquireVsCodeApi();
   const RN = ${rnJson};
   function rnFetchTimeout(ms) {
     try {
@@ -829,8 +945,8 @@ export function getChatHtml(
   const sendBtn = document.getElementById('send-btn');
   const stopBtn = document.getElementById('stop-btn');
   let gotStatus = false;
+  let modelsLoaded = false;
   let statusPoll = null;
-  let startRequested = false;
   const chips = document.getElementById('chips');
   const targets = document.getElementById('targets');
   const mentionBox = document.getElementById('mention-box');
@@ -946,6 +1062,19 @@ export function getChatHtml(
     const provider = data.provider || 'ollama';
     const saved = vscode.getState() || {};
 
+    if (data.loading !== false && data.loading && models.length === 0) {
+      if (modelSelect) {
+        modelSelect.innerHTML = '';
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'Loading models…';
+        opt.disabled = true;
+        opt.selected = true;
+        modelSelect.appendChild(opt);
+      }
+      return;
+    }
+
     if (providerSelect && data.providers && data.providers.length) {
       providerSelect.innerHTML = '';
       data.providers.forEach(function(p) {
@@ -973,9 +1102,11 @@ export function getChatHtml(
       opt.disabled = true;
       opt.selected = true;
       modelSelect.appendChild(opt);
+      modelsLoaded = false;
       return;
     }
 
+    modelsLoaded = true;
     const labels = data.modelLabels || {};
     models.forEach(function(name) {
       const opt = document.createElement('option');
@@ -1014,8 +1145,12 @@ export function getChatHtml(
     modelSelect.addEventListener('change', syncModelChoice);
   }
 
-  function setAiStatus(online, checking) {
+  function setAiStatus(online, checking, hidden) {
     if (!aiStatusBtn) return;
+    if (hidden || !RN.showAiOfflineIndicator) {
+      aiStatusBtn.className = 'ai-status hidden-indicator';
+      return;
+    }
     aiStatusBtn.className = 'ai-status ' + (checking ? 'checking' : online ? 'online' : 'offline');
     const label = aiStatusBtn.querySelector('.ai-status-label');
     if (label) label.textContent = checking ? 'Checking…' : online ? 'Online' : 'Offline';
@@ -1027,84 +1162,14 @@ export function getChatHtml(
   }
   if (aiStatusBtn) {
     aiStatusBtn.onclick = function() {
+      setAiStatus(false, true);
       vscode.postMessage({ type: 'startAiService' });
-      void refreshStatusDirect();
+      vscode.postMessage({ type: 'requestInit' });
     };
   }
 
-  async function refreshStatusDirect() {
-    setAiStatus(false, true);
-    var base = String(RN.serviceUrl || '').replace(/\\/$/, '');
-    try {
-      var r = await fetch(base + '/health', { signal: rnFetchTimeout(5000) });
-      var online = r.ok;
-      setAiStatus(online, false);
-      gotStatus = true;
-      if (online) await loadModelsDirect();
-      else {
-        requestServerStart();
-        fillChatModels({
-          models: [],
-          provider: 'ollama',
-          providers: RN.providers,
-          showPicker: true,
-          error: 'AI offline — starting service…'
-        });
-      }
-    } catch (err) {
-      setAiStatus(false, false);
-      gotStatus = true;
-      requestServerStart();
-      fillChatModels({
-        models: [],
-        provider: 'ollama',
-        providers: RN.providers,
-        showPicker: true,
-        error: 'Cannot reach ' + base + ' — starting service… (Output → Rubynod AI Service)'
-      });
-    }
-  }
-
-  function requestServerStart() {
-    if (startRequested) return;
-    startRequested = true;
-    vscode.postMessage({ type: 'startAiService' });
-  }
-
-  async function loadModelsDirect() {
-    var base = String(RN.serviceUrl || '').replace(/\\/$/, '');
-    var host = encodeURIComponent(RN.ollamaHost || 'http://127.0.0.1:11434');
-    try {
-      var r = await fetch(base + '/ollama/models?host=' + host, { signal: rnFetchTimeout(10000) });
-      var j = await r.json();
-      var models = [];
-      var modelLabels = {};
-      (j.models || []).forEach(function(m) {
-        var name = typeof m === 'string' ? m : (m && m.name);
-        if (!name) return;
-        models.push(name);
-        if (m && m.supportsTools === false) {
-          modelLabels[name] = name + ' (no agent tools)';
-        }
-      });
-      fillChatModels({
-        models: models,
-        modelLabels: modelLabels,
-        current: j.suggested || models[0] || '',
-        provider: 'ollama',
-        providers: RN.providers,
-        showPicker: true,
-        error: models.length ? undefined : (j.error || 'No models — run: ollama pull llama3.2')
-      });
-    } catch (e) {
-      fillChatModels({
-        models: [],
-        provider: 'ollama',
-        providers: RN.providers,
-        showPicker: true,
-        error: 'Ollama not reachable at ' + (RN.ollamaHost || '127.0.0.1:11434')
-      });
-    }
+  function requestPanelInit() {
+    vscode.postMessage({ type: 'requestInit' });
   }
 
   let mentionActive = -1;
@@ -1117,6 +1182,8 @@ export function getChatHtml(
     activitySteps: {},
     toolCards: {},
     toolArgs: {},
+    thinkingHidden: false,
+    hasAssistantOutput: false,
   };
 
   function stripLineNumbers(text) {
@@ -1199,6 +1266,36 @@ export function getChatHtml(
 
   function escapeHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function fileDisplayName(p) {
+    const s = String(p || '').replace(/\\\\/g, '/');
+    const i = s.lastIndexOf('/');
+    return i >= 0 ? s.slice(i + 1) : s;
+  }
+
+  const attIcons = {
+    tab: '✎',
+    file: '📄',
+    folder: '📁',
+    mention: '@',
+    open: '⊞',
+    selection: '◇',
+    terminal: '▸',
+    git: '⎇',
+    codebase: '⌕',
+    context: '📎',
+  };
+
+  function renderMessageAttachments(attachments) {
+    if (!attachments || !attachments.length) return '';
+    return attachments.map(a => {
+      const icon = attIcons[a.kind] || attIcons.context;
+      const title = a.path ? a.path : a.label;
+      return '<span class="msg-attachment ' + escapeHtml(a.kind || 'context') + '" title="' + escapeHtml(title) + '">' +
+        '<span class="msg-att-icon">' + icon + '</span>' +
+        '<span>' + escapeHtml(a.label || '') + '</span></span>';
+    }).join('');
   }
 
   /** Highlight @file, @folder:path, @name:line-range in sent user messages. */
@@ -1366,8 +1463,25 @@ export function getChatHtml(
     const panel = document.createElement('div');
     panel.className = 'activity-panel';
     panel.innerHTML =
-      '<div class="activity-header"><span class="spinner"></span><span>Working</span></div>' +
+      '<div class="thinking-banner">' +
+        '<span class="spinner"></span>' +
+        '<span class="thinking-banner-label">Thinking…</span>' +
+      '</div>' +
+      '<div class="activity-thought" hidden></div>' +
       '<div class="activity-steps"></div>';
+    const banner = panel.querySelector('.thinking-banner');
+    if (banner) {
+      banner.onclick = function() {
+        if (panel.classList.contains('hiding')) return;
+        if (panel.classList.contains('collapsed')) {
+          panel.classList.remove('collapsed');
+          return;
+        }
+        if (panel.querySelector('.activity-thought')?.textContent?.trim()) {
+          panel.classList.toggle('expanded-thought');
+        }
+      };
+    }
     state.activityPanel = panel;
     state.activitySteps = {};
     thread.appendChild(panel);
@@ -1375,13 +1489,43 @@ export function getChatHtml(
     return panel;
   }
 
-  function finishActivityPanel() {
-    if (!state.activityPanel) return;
-    state.activityPanel.classList.add('done');
-    const header = state.activityPanel.querySelector('.activity-header span:last-child');
-    if (header) header.textContent = 'Done';
-    const spin = state.activityPanel.querySelector('.activity-header .spinner');
+  function setThinkingBanner(label) {
+    const panel = state.activityPanel;
+    if (!panel) return;
+    const el = panel.querySelector('.thinking-banner-label');
+    if (el && label) el.textContent = label;
+  }
+
+  function collapseThinkingPanel() {
+    const panel = state.activityPanel;
+    if (!panel || state.thinkingHidden) return;
+    state.thinkingHidden = true;
+    panel.classList.add('done', 'collapsed');
+    panel.classList.remove('expanded-thought');
+    const label = panel.querySelector('.thinking-banner-label');
+    if (label) label.textContent = '◆ Thinking (click to expand)';
+    const spin = panel.querySelector('.thinking-banner .spinner');
     if (spin) spin.remove();
+  }
+
+  function hideThinkingPanel() {
+    const panel = state.activityPanel;
+    if (!panel) return;
+    panel.classList.add('hiding');
+    setTimeout(function() {
+      if (panel.parentNode) panel.parentNode.removeChild(panel);
+      if (state.activityPanel === panel) {
+        state.activityPanel = null;
+        state.activitySteps = {};
+      }
+    }, 350);
+  }
+
+  function finishActivityPanel() {
+    collapseThinkingPanel();
+    setTimeout(function() {
+      hideThinkingPanel();
+    }, 1200);
   }
 
   function upsertActivityStep(id, step, label, detail, status) {
@@ -1405,6 +1549,9 @@ export function getChatHtml(
     }
     row.className = 'activity-step ' + (status || 'active');
     row.querySelector('.activity-step-label').textContent = label || '';
+    if (label && status === 'active') {
+      setThinkingBanner(label.startsWith('◆') ? label : '◆ ' + label);
+    }
     const detailEl = row.querySelector('.activity-step-detail');
     if (detail) {
       detailEl.textContent = detail;
@@ -1419,13 +1566,13 @@ export function getChatHtml(
   function addThought(text) {
     if (!text || !text.trim()) return;
     const panel = ensureActivityPanel();
+    panel.classList.add('has-thought');
+    setThinkingBanner('◆ Thinking…');
     let block = panel.querySelector('.activity-thought');
-    if (!block) {
-      block = document.createElement('div');
-      block.className = 'activity-thought';
-      panel.insertBefore(block, panel.querySelector('.activity-steps'));
+    if (block) {
+      block.hidden = false;
+      block.textContent = text.trim();
     }
-    block.textContent = text.trim();
     scroll();
   }
 
@@ -1446,17 +1593,30 @@ export function getChatHtml(
     return state.assistantEl;
   }
 
-  function appendUser(text) {
+  function appendUser(text, attachments) {
     hideEmpty();
     state.assistantEl = null;
+    const wrap = document.createElement('div');
+    wrap.className = 'bubble-user-wrap';
     const el = document.createElement('div');
     el.className = 'bubble-user';
     el.innerHTML = highlightAtMentions(text);
-    thread.appendChild(el);
+    wrap.appendChild(el);
+    const attHtml = renderMessageAttachments(attachments);
+    if (attHtml) {
+      const attEl = document.createElement('div');
+      attEl.className = 'bubble-attachments';
+      attEl.innerHTML = attHtml;
+      wrap.appendChild(attEl);
+    }
+    thread.appendChild(wrap);
     scroll();
   }
 
   function appendText(delta) {
+    if (!state.hasAssistantOutput) {
+      state.hasAssistantOutput = true;
+    }
     const el = ensureAssistant();
     state.assistantMarkdown += delta;
     renderAssistantMarkdown(el, state.assistantMarkdown);
@@ -1542,7 +1702,7 @@ export function getChatHtml(
   function renderHistoryEntry(entry) {
     if (!entry || !entry.kind) return;
     if (entry.kind === 'user') {
-      appendUser(entry.text);
+      appendUser(entry.text, entry.attachments);
       return;
     }
     if (entry.kind === 'assistant') {
@@ -1572,17 +1732,18 @@ export function getChatHtml(
   function hydrateHistory(entries) {
     if (!entries || !entries.length) return;
     thread.innerHTML = '';
-    state = { running: false, assistantEl: null, assistantMarkdown: '', thinkingEl: null, activityPanel: null, activitySteps: {}, toolCards: {}, toolArgs: {} };
+    state = { running: false, assistantEl: null, assistantMarkdown: '', thinkingHidden: false, hasAssistantOutput: false, activityPanel: null, activitySteps: {}, toolCards: {}, toolArgs: {} };
     for (const entry of entries) renderHistoryEntry(entry);
     setStatus('', false);
     scroll();
   }
 
   function renderTargets(files) {
-    targets.innerHTML = (files || []).map(f =>
-      '<span class="target-chip" data-file="' + escapeHtml(f) + '">' +
-      '<span class="label">✎ ' + escapeHtml(f) + '</span><span class="x">×</span></span>'
-    ).join('');
+    targets.innerHTML = (files || []).map(f => {
+      const name = fileDisplayName(f);
+      return '<span class="target-chip" data-file="' + escapeHtml(f) + '" title="' + escapeHtml(f) + '">' +
+        '<span class="label">✎ ' + escapeHtml(name) + '</span><span class="x">×</span></span>';
+    }).join('');
     targets.querySelectorAll('.target-chip .x').forEach(el => {
       el.onclick = (e) => {
         e.stopPropagation();
@@ -1622,7 +1783,6 @@ export function getChatHtml(
     const mode = document.getElementById('mode').value;
     const model = modelSelect && modelSelect.value ? modelSelect.value : undefined;
     const provider = providerSelect && providerSelect.value ? providerSelect.value : undefined;
-    appendUser(text);
     input.value = '';
     input.style.height = 'auto';
     setStatus('Sending…', true);
@@ -1643,13 +1803,20 @@ export function getChatHtml(
   window.addEventListener('message', e => {
     const m = e.data;
     switch (m.type) {
+      case 'user':
+        appendUser(m.text || '', m.attachments);
+        break;
       case 'runStart':
         state.toolCards = {};
         state.assistantMarkdown = '';
         state.activityPanel = null;
         state.activitySteps = {};
-        upsertActivityStep('think-live', 'think', m.label || 'Thinking…', '', 'active');
-        setStatus('Agent running…', true);
+        state.thinkingHidden = false;
+        state.hasAssistantOutput = false;
+        ensureActivityPanel();
+        upsertActivityStep('think-live', 'think', m.label || '◆ Thinking…', '', 'active');
+        setThinkingBanner(m.label || '◆ Thinking…');
+        setStatus('◆ Thinking…', true);
         break;
       case 'activity':
         upsertActivityStep(m.id, m.step || 'think', m.label, m.detail, m.status || 'active');
@@ -1657,8 +1824,6 @@ export function getChatHtml(
         break;
       case 'thought':
         addThought(m.text);
-        break;
-      case 'user':
         break;
       case 'text':
         appendText(m.text);
@@ -1682,11 +1847,8 @@ export function getChatHtml(
         renderTargets(m.files || []);
         break;
       case 'aiStatus':
-        if (!gotStatus || !m.checking) setAiStatus(!!m.online, !!m.checking);
-        if (!m.checking) {
-          gotStatus = true;
-          if (statusPoll) clearInterval(statusPoll);
-        }
+        setAiStatus(!!m.online, !!m.checking, !!m.hidden);
+        if (!m.checking) gotStatus = true;
         break;
       case 'chatModels':
         fillChatModels(m);
@@ -1700,7 +1862,8 @@ export function getChatHtml(
         state.assistantEl = null;
         break;
       case 'error':
-        finishActivityPanel();
+        collapseThinkingPanel();
+        setTimeout(function() { hideThinkingPanel(); }, 1200);
         ensureAssistant();
         appendText('\\n\\n⚠ ' + (m.message || 'Error'));
         setStatus('', false);
@@ -1734,7 +1897,7 @@ export function getChatHtml(
       case 'clear':
         thread.innerHTML = '<div class="empty-state" id="empty"><h2>What can I help you build?</h2></div>';
         setSessionTitle('New Chat');
-        state = { running: false, assistantEl: null, assistantMarkdown: '', activityPanel: null, activitySteps: {}, toolCards: {}, toolArgs: {} };
+        state = { running: false, assistantEl: null, assistantMarkdown: '', thinkingHidden: false, hasAssistantOutput: false, activityPanel: null, activitySteps: {}, toolCards: {}, toolArgs: {} };
         sendBtn.disabled = false;
         stopBtn.classList.add('hidden');
         sendBtn.classList.remove('hidden');
@@ -1743,18 +1906,41 @@ export function getChatHtml(
   });
 
   statusPoll = setInterval(function() {
-    if (!gotStatus) vscode.postMessage({ type: 'ping' });
-    void refreshStatusDirect();
-  }, 5000);
+    if (!gotStatus || !modelsLoaded) requestPanelInit();
+  }, 10000);
 
   if (aiStatusBtn) {
     var bootLbl = aiStatusBtn.querySelector('.ai-status-label');
-    if (bootLbl) bootLbl.textContent = 'Checking…';
+    if (bootLbl) bootLbl.textContent = 'Connecting…';
   }
-  vscode.postMessage({ type: 'startAiService' });
-  void refreshStatusDirect();
+  if (modelSelect) {
+    modelSelect.innerHTML = '<option value="">Loading models…</option>';
+  }
+  function applyBakedInit() {
+    if (RN.providers) {
+      fillChatModels({
+        models: RN.initialModels || [],
+        modelLabels: RN.initialModelLabels || {},
+        current: RN.initialCurrent || '',
+        provider: RN.initialProvider || 'ollama',
+        providers: RN.providers,
+        loading: false,
+        error: RN.initialError,
+        showPicker: true,
+      });
+    }
+    if (typeof RN.initialOnline === 'boolean') {
+      setAiStatus(RN.initialOnline, false);
+      gotStatus = true;
+    } else if (RN.initialError) {
+      setAiStatus(false, false);
+      gotStatus = true;
+    }
+  }
+  applyBakedInit();
   vscode.postMessage({ type: 'webviewReady' });
-  setTimeout(function() { vscode.postMessage({ type: 'ping' }); }, 400);
+  requestPanelInit();
+  setTimeout(requestPanelInit, 800);
   } catch (bootErr) {
     console.error('[rubynod chat] boot failed:', bootErr);
     var errBtn = document.getElementById('ai-status');

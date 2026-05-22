@@ -24,6 +24,11 @@ export function likelyOllamaModelWithoutTools(name: string): boolean {
   return LIKELY_NO_TOOLS_RE.test(name);
 }
 
+/** Reasoning models (DeepSeek-R1, etc.) — installed in Ollama but without `tools` capability. */
+export function isOllamaReasoningModel(name: string): boolean {
+  return /deepseek-r1|deepseek-r1:|(?:^|:|-)r1(?:$|:|-)/i.test(name);
+}
+
 export async function checkOllamaHealth(host = DEFAULT_HOST): Promise<boolean> {
   try {
     const res = await fetch(`${host}/api/tags`, { signal: AbortSignal.timeout(3000) });
@@ -125,12 +130,26 @@ export function pickDefaultOllamaModel(models: OllamaModel[]): string | null {
 }
 
 export function formatOllamaNoToolsModelError(model: string): string {
+  const reasoning = isOllamaReasoningModel(model);
+  const reason = reasoning
+    ? `Ollama reports this model's capabilities as **completion** and **thinking** only — not **tools**. ` +
+      `DeepSeek-R1 is a reasoning model; the official \`deepseek-r1\` tags in Ollama do not expose native tool calling to the API (even though the model is installed and works great for chat).`
+    : `This often happens with *-base (pretrained weights), embedding, or models without a tool-capable chat template.`;
+
+  const alternatives = reasoning
+    ? `For **Agent** (edit files, grep, terminal), pick a model **without** "(no agent tools)", e.g.:\n` +
+      `  ollama pull qwen2.5-coder:7b\n` +
+      `  ollama pull llama3.2\n\n` +
+      `Keep **deepseek-r1** for **Ask** or **Plan** mode (Q&A / reasoning). Optional community build with tools:\n` +
+      `  ollama pull MFDoom/deepseek-r1-tool-calling:32b`
+    : `Install a tool-capable model, then pick it in the dropdown:\n` +
+      `  ollama pull qwen2.5-coder:7b\n` +
+      `  ollama pull llama3.2`;
+
   return (
-    `Model "${model}" does not support tool calling, so Rubynod Agent cannot edit or search your project with it.\n\n` +
-    `This often happens with *-base (pretrained weights), embedding, or very small models pulled from the registry.\n\n` +
-    `Install a chat model with tools, then pick it in the model dropdown:\n` +
-    `  ollama pull qwen2.5-coder:7b\n` +
-    `  ollama pull llama3.2\n\n` +
-    `In the picker, models marked "(no agent tools)" are chat-only — use them for Ask, not Agent.`
+    `Model "${model}" does not support tool calling, so Rubynod **Agent** cannot edit or search your project with it.\n\n` +
+    `${reason}\n\n` +
+    `${alternatives}\n\n` +
+    `Verify: \`ollama show ${model}\` — under **Capabilities** you should see \`tools\` for Agent mode.`
   );
 }

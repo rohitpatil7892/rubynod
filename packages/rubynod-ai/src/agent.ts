@@ -190,6 +190,7 @@ export async function* runAgent(
   /** Per user message: track writes to block incremental tiny overwrites. */
   const writeStatsByPath = new Map<string, { chars: number; count: number }>();
   let toolsExecutedThisRun = 0;
+  let retriedToolJson = false;
 
   for (let turn = 0; turn < maxTurns; turn++) {
     if (thread.cancelled) {
@@ -349,10 +350,29 @@ export async function* runAgent(
       const toolJsonFailed =
         !isGreeting && mode === 'agent' && isFailedToolOnlyResponse(assistantText);
       if (toolJsonFailed) {
+        if (
+          !retriedToolJson &&
+          shouldRequireAgentTools(req.message) &&
+          ollamaSupportsTools
+        ) {
+          retriedToolJson = true;
+          agentLog.warn('Tool JSON leak — retrying with tool_choice required', {
+            model: config.model,
+          });
+          messages.push({
+            role: 'user',
+            content:
+              'Your last reply leaked tool JSON in chat instead of calling tools. ' +
+              'Use the native write_file / read_file / glob tools now. ' +
+              'Do not print {"name":"write_file"...} in the message. ' +
+              'Call write_file with full file contents for each new file.',
+          });
+          continue;
+        }
         const hint =
-          'The model returned incomplete tool JSON instead of editing the file. ' +
-          'Ensure Ollama is running, pull `qwen2.5-coder:7b`, reload VS Code, kill port 3847, and retry. ' +
-          'Or run **Rubynod: Start AI Service** and check Output → Rubynod logs.';
+          `The model (${config.model}) returned incomplete tool JSON instead of editing files. ` +
+          'For Ollama, run `ollama pull qwen2.5-coder` and set **Rubynod › Models › Chat Model** to `qwen2.5-coder`. ' +
+          'Then reload the window and retry. Or use **Rubynod: Start AI Service** and check Output → Rubynod.';
         agentLog.warn('No tools ran; leaked tool JSON in model output', {
           assistantPreview: rawAssistantForRecovery.slice(0, 200),
           model: config.model,

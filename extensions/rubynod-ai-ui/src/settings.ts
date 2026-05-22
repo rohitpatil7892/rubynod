@@ -125,6 +125,21 @@ export function requiresFileApproval(): boolean {
   return !isYoloMode() && !isAutoApproveFileWrites();
 }
 
+/** Show Online/Offline in the chat composer. Set false to hide. */
+export function isShowAiOfflineIndicator(): boolean {
+  return cfg('ui.showAiOfflineIndicator', true);
+}
+
+/** Show Rubynod AI online/offline in the VS Code status bar. Set false to hide. */
+export function isShowAiStatusBarIndicator(): boolean {
+  return cfg('ui.showAiStatusBarIndicator', true);
+}
+
+/** Show extension version (e.g. v0.1.41) in the chat composer. Set false to hide. */
+export function isShowExtensionVersion(): boolean {
+  return cfg('ui.showExtensionVersion', true);
+}
+
 export function isAutoIndexOnSave(): boolean {
   return cfg('index.autoIndexOnSave', true);
 }

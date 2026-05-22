@@ -59,7 +59,16 @@ export async function listOllamaModelsForChat(): Promise<{
   }
 }
 
+function isReasoningOllamaName(name: string): boolean {
+  return /deepseek-r1|deepseek-r1:|(?:^|:|-)r1(?:$|:|-)/i.test(name);
+}
+
 export function labelOllamaModelForPicker(m: OllamaChatModel): string {
-  if (m.supportsTools === false) return `${m.name} (no agent tools)`;
+  if (m.supportsTools === false) {
+    if (isReasoningOllamaName(m.name)) {
+      return `${m.name} (reasoning — Ask/Plan only)`;
+    }
+    return `${m.name} (no agent tools)`;
+  }
   return m.name;
 }

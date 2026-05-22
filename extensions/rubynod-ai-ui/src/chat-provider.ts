@@ -9,6 +9,9 @@ import {
   getModel,
   getServiceUrl,
   getOllamaHost,
+  isShowAiOfflineIndicator,
+  isShowAiStatusBarIndicator,
+  isShowExtensionVersion,
 } from './settings';
 import { createIdeBridge } from './bridge';
 import { pickContext, type ContextAttachment } from './context';
@@ -24,6 +27,7 @@ import {
   getPendingDiffs,
 } from './diff-manager';
 import { addContext, clearContext, getPendingContext, removeContext, getChipsPayload } from './context-store';
+import { buildUserAttachments } from './user-attachments';
 import { attachmentFromUri, resolveParsedMentions, getActiveEditorAttachment } from './file-context';
 import { getChatHtml, type ChatWebviewConfig } from './chat-ui';
 import { suggestMentions } from './file-mention-picker';
@@ -33,11 +37,10 @@ import { ChatHistory, type ChatHistoryEntry } from './chat-history';
 import { isSimpleGreeting } from './greeting';
 import {
   CHAT_PROVIDERS,
-  cloudModelsForProvider,
   defaultBaseUrlForProvider,
   type ChatProviderId,
 } from './model-catalog';
-import { labelOllamaModelForPicker, listOllamaModelsForChat } from './ollama-models';
+import { resolveChatModelsForProvider } from './panel-models';
 
 let toolIdCounter = 0;
 
@@ -78,6 +81,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private messageDisposable?: vscode.Disposable;
   private webviewReady = false;
   private panelBootstrapped = false;
+  private modelsRefreshChain: Promise<void> = Promise.resolve();
+  private readonly pendingMessages: unknown[] = [];
   private readonly aiStatusBar: vscode.StatusBarItem;
 
   constructor(
@@ -90,7 +95,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.aiStatusBar.command = 'rubynod.startAiService';
     this.aiStatusBar.text = '$(sync~spin) Rubynod AI';
     this.aiStatusBar.tooltip = 'Rubynod AI — starting…';
-    this.aiStatusBar.show();
+    if (isShowAiStatusBarIndicator()) this.aiStatusBar.show();
     context.subscriptions.push(this.aiStatusBar);
   }
 
@@ -99,6 +104,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       serviceUrl: getServiceUrl(),
       ollamaHost: getOllamaHost(),
       providers: CHAT_PROVIDERS,
+      showAiOfflineIndicator: isShowAiOfflineIndicator(),
+      showExtensionVersion: isShowExtensionVersion(),
     };
   }
 
@@ -154,24 +161,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.view = webviewView;
     this.webviewReady = false;
     this.panelBootstrapped = false;
+    this.pendingMessages.length = 0;
     if (this.bootstrapFallbackTimer) {
       clearTimeout(this.bootstrapFallbackTimer);
       this.bootstrapFallbackTimer = undefined;
     }
     this.messageDisposable?.dispose();
-
-    void ensureRubynodReady()
-      .then((ready) => {
-        if (!ready) {
-          this.aiStatusBar.text = '$(error) Rubynod AI';
-          this.aiStatusBar.tooltip =
-            'AI service failed to start — Output → Rubynod AI Service, or Rubynod: Start AI Service';
-        }
-        return this.refreshPanel();
-      })
-      .catch((err) => {
-        chatLog.error('ensureRubynodReady in setupWebview failed', err);
-      });
 
     const webview = webviewView.webview;
     webview.options = { enableScripts: true };
@@ -182,15 +177,31 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       });
     });
 
-    webview.html = getChatHtml(
-      getDefaultChatMode(),
-      this.extensionVersion,
-      this.webviewConfig()
-    );
+    const baked = await this.buildInitialPanelState();
+    if (!baked.online && isShowAiStatusBarIndicator()) {
+      this.aiStatusBar.show();
+      this.aiStatusBar.text = '$(error) Rubynod AI';
+      this.aiStatusBar.tooltip =
+        baked.error ??
+        'AI service failed to start — Output → Rubynod AI Service, or Rubynod: Start AI Service';
+    }
+
+    webview.html = getChatHtml(getDefaultChatMode(), this.extensionVersion, {
+      ...this.webviewConfig(),
+      initialOnline: baked.online,
+      initialModels: baked.models,
+      initialModelLabels: baked.modelLabels,
+      initialCurrent: baked.current,
+      initialProvider: baked.provider,
+      initialError: baked.error,
+    });
 
     this.bootstrapFallbackTimer = setTimeout(() => {
-      if (!this.webviewReady) void this.onWebviewReady();
-    }, 2500);
+      if (!this.webviewReady) {
+        chatLog.warn('webviewReady not received — running fallback bootstrap');
+        void this.onWebviewReady();
+      }
+    }, 4000);
 
     if (this.healthTimer) clearInterval(this.healthTimer);
     this.healthTimer = setInterval(() => {
@@ -198,7 +209,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }, 8000);
 
     webviewView.onDidChangeVisibility(() => {
-      if (webviewView.visible) void this.refreshPanel();
+      if (webviewView.visible && this.webviewReady) void this.refreshPanel();
     });
 
     webviewView.onDidDispose(() => {
@@ -217,18 +228,123 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     });
 
     if (webviewView.visible) {
-      setTimeout(() => void this.refreshPanel(), 500);
+      setTimeout(() => {
+        if (this.webviewReady) void this.refreshPanel();
+      }, 500);
     }
   }
 
   /** Refresh status + models (safe to call anytime the chat panel is open). */
   async refreshPanel(): Promise<void> {
-    if (!this.view?.webview) return;
-    if (!this.webviewReady) {
-      await this.onWebviewReady();
+    await this.pushPanelInit();
+  }
+
+  /** Sync AI status and model list to the webview (extension-side; no webview fetch). */
+  async pushPanelInit(): Promise<void> {
+    if (!this.view?.webview || !this.webviewReady) return;
+    try {
+      await this.refreshAiStatus();
+      await this.refreshChatModels();
+    } catch (err) {
+      chatLog.error('pushPanelInit failed', err);
+      this.post({
+        type: 'chatModels',
+        loading: false,
+        provider: getProvider(),
+        providers: CHAT_PROVIDERS,
+        models: [],
+        current: getModel(),
+        showPicker: true,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /** Force-reload chat webview HTML (fixes a stuck panel). */
+  async reloadWebviewView(): Promise<void> {
+    if (!this.view) {
+      await vscode.commands.executeCommand('rubynod.chatView.focus');
       return;
     }
-    await this.refreshAiStatus();
+    this.webviewReady = false;
+    this.panelBootstrapped = false;
+    this.pendingMessages.length = 0;
+    if (this.bootstrapFallbackTimer) {
+      clearTimeout(this.bootstrapFallbackTimer);
+      this.bootstrapFallbackTimer = undefined;
+    }
+    const baked = await this.buildInitialPanelState();
+    this.view.webview.html = getChatHtml(getDefaultChatMode(), this.extensionVersion, {
+      ...this.webviewConfig(),
+      initialOnline: baked.online,
+      initialModels: baked.models,
+      initialModelLabels: baked.modelLabels,
+      initialCurrent: baked.current,
+      initialProvider: baked.provider,
+      initialError: baked.error,
+    });
+    this.bootstrapFallbackTimer = setTimeout(() => {
+      if (!this.webviewReady) void this.onWebviewReady();
+    }, 4000);
+  }
+
+  private postLoadingModels(provider?: ChatProviderId): void {
+    this.post({
+      type: 'chatModels',
+      loading: true,
+      provider: provider ?? getProvider(),
+      providers: CHAT_PROVIDERS,
+      models: [],
+      current: getModel(),
+      showPicker: true,
+    });
+  }
+
+  private async buildInitialPanelState(): Promise<{
+    online: boolean;
+    provider: string;
+    models: string[];
+    modelLabels?: Record<string, string>;
+    current: string;
+    error?: string;
+  }> {
+    let online = await isAiServiceHealthy();
+    if (!online) {
+      const ready = await Promise.race([
+        ensureRubynodReady(),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 12_000)),
+      ]);
+      online = ready && (await isAiServiceHealthy());
+    }
+    if (!online) {
+      return {
+        online: false,
+        provider: getProvider(),
+        models: [],
+        current: getModel(),
+        error: `Rubynod AI not reachable at ${getServiceUrl()}. Ollama alone is not enough — run Command Palette → Rubynod: Start AI Service.`,
+      };
+    }
+    try {
+      const resolved = await resolveChatModelsForProvider(undefined, 12_000);
+      return {
+        online: true,
+        provider: resolved.provider,
+        models: resolved.models,
+        modelLabels: resolved.modelLabels,
+        current: resolved.current,
+        error: resolved.error,
+      };
+    } catch (err) {
+      chatLog.error('buildInitialPanelState failed', err);
+      return {
+        online: true,
+        provider: getProvider(),
+        models: [],
+        current: getModel(),
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   private async onWebviewReady(): Promise<void> {
@@ -237,85 +353,92 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       clearTimeout(this.bootstrapFallbackTimer);
       this.bootstrapFallbackTimer = undefined;
     }
-    // Push status/models immediately so UI works even if webview fetch is blocked.
-    await this.refreshAiStatus();
-    if (await isAiServiceHealthy()) {
-      await this.refreshChatModels();
-    }
+
+    this.flushPendingMessages();
+
     if (!this.panelBootstrapped) {
       this.panelBootstrapped = true;
       this.refreshChips();
       this.refreshTargets();
       this.refreshPendingDiffs();
       this.restoreHistory();
-      await this.bootstrapChatPanel();
-      return;
     }
-    await this.refreshAiStatus();
-    await this.refreshChatModels();
+
+    void this.pushPanelInit().catch((err) => chatLog.error('pushPanelInit after ready failed', err));
   }
 
-  /** Start AI (if needed) and refresh Online/Offline badge in chat. */
+  /** Start AI (if needed) and refresh chat panel. */
   async bootstrapChatPanel(): Promise<void> {
-    await this.refreshAiStatus();
-    const ready = await ensureRubynodReady();
-    await this.refreshAiStatus();
-    if (ready) await this.refreshChatModels();
+    await ensureRubynodReady();
+    await this.pushPanelInit();
   }
 
   async refreshAiStatus(): Promise<void> {
-    this.post({ type: 'aiStatus', online: false, checking: true });
-    this.aiStatusBar.text = '$(sync~spin) Rubynod AI';
+    this.post({ type: 'aiStatus', online: false, checking: true, hidden: !isShowAiOfflineIndicator() });
+    if (isShowAiStatusBarIndicator()) {
+      this.aiStatusBar.show();
+      this.aiStatusBar.text = '$(sync~spin) Rubynod AI';
+    } else {
+      this.aiStatusBar.hide();
+    }
     const online = await isAiServiceHealthy();
-    this.post({ type: 'aiStatus', online, checking: false });
-    this.aiStatusBar.text = online ? '$(pass) Rubynod AI' : '$(error) Rubynod AI';
-    this.aiStatusBar.tooltip = online
-      ? `Rubynod AI online — ${getServiceUrl()}`
-      : `Rubynod AI offline — ${getServiceUrl()} (click to start)`;
-    if (online) await this.refreshChatModels();
+    this.post({ type: 'aiStatus', online, checking: false, hidden: !isShowAiOfflineIndicator() });
+    if (isShowAiStatusBarIndicator()) {
+      this.aiStatusBar.show();
+      this.aiStatusBar.text = online ? '$(pass) Rubynod AI' : '$(error) Rubynod AI';
+      this.aiStatusBar.tooltip = online
+        ? `Rubynod AI online — ${getServiceUrl()}`
+        : `Rubynod AI offline — ${getServiceUrl()} (click to start)`;
+    } else {
+      this.aiStatusBar.hide();
+    }
   }
 
   async refreshChatModels(requestedProvider?: string): Promise<void> {
+    if (!this.view?.webview) return;
+    this.modelsRefreshChain = this.modelsRefreshChain
+      .then(() => this.doRefreshChatModels(requestedProvider))
+      .catch((err) => {
+        chatLog.error('refreshChatModels failed', err);
+      });
+    return this.modelsRefreshChain;
+  }
+
+  private async doRefreshChatModels(requestedProvider?: string): Promise<void> {
     const provider = (requestedProvider || getProvider()) as ChatProviderId;
     const current = getModel();
-    let models: string[] = [];
-    let modelLabels: Record<string, string> | undefined;
-    let picked = current;
-    let error: string | undefined;
+
+    this.postLoadingModels(provider);
 
     if (!(await isAiServiceHealthy())) {
-      await ensureRubynodReady();
+      const ready = await Promise.race([
+        ensureRubynodReady(),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 20_000)),
+      ]);
+      if (!ready && !(await isAiServiceHealthy())) {
+        this.post({
+          type: 'chatModels',
+          loading: false,
+          provider,
+          providers: CHAT_PROVIDERS,
+          models: [],
+          current: current,
+          showPicker: true,
+          error:
+            'Rubynod AI service did not start. Output → Rubynod AI Service, or Command Palette → Rubynod: Start AI Service.',
+        });
+        this.post({
+          type: 'aiStatus',
+          online: false,
+          checking: false,
+          hidden: !isShowAiOfflineIndicator(),
+        });
+        return;
+      }
     }
 
-    if (provider === 'ollama') {
-      const ollama = await listOllamaModelsForChat();
-      models = ollama.models.map((m) => m.name);
-      modelLabels = Object.fromEntries(
-        ollama.models.map((m) => [m.name, labelOllamaModelForPicker(m)])
-      );
-      error = ollama.error;
-      const suggested = ollama.suggested;
-      const currentEntry = ollama.models.find((m) => m.name === current);
-      if (currentEntry?.supportsTools === false && suggested && models.includes(suggested)) {
-        picked = suggested;
-      } else {
-        picked = models.includes(current)
-          ? current
-          : suggested && models.includes(suggested)
-            ? suggested
-            : (models[0] ?? current);
-      }
-      if (picked && models.length && !models.includes(picked)) {
-        models = [picked, ...models];
-        modelLabels[picked] = labelOllamaModelForPicker({
-          name: picked,
-          supportsTools: ollama.models.find((m) => m.name === picked)?.supportsTools,
-        });
-      }
-    } else {
-      models = cloudModelsForProvider(provider, current);
-      picked = models.includes(current) ? current : (models[0] ?? current);
-    }
+    const resolved = await resolveChatModelsForProvider(provider);
+    const { models, modelLabels, current: picked, error } = resolved;
 
     if (picked && models.length) {
       const cfg = vscode.workspace.getConfiguration('rubynod');
@@ -327,6 +450,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     this.post({
       type: 'chatModels',
+      loading: false,
       provider,
       providers: CHAT_PROVIDERS,
       models,
@@ -375,9 +499,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.postSessionState();
   }
 
+  private flushPendingMessages(): void {
+    const webview = this.view?.webview;
+    if (!webview || !this.pendingMessages.length) return;
+    const batch = [...this.pendingMessages];
+    this.pendingMessages.length = 0;
+    for (const msg of batch) {
+      void webview.postMessage(msg).then(undefined, (err) => {
+        chatLog.error('webview postMessage failed (queued)', err);
+      });
+    }
+  }
+
   private post(msg: unknown) {
     const webview = this.view?.webview;
     if (!webview) return;
+    if (!this.webviewReady) {
+      this.pendingMessages.push(msg);
+      return;
+    }
     void webview.postMessage(msg).then(undefined, (err) => {
       chatLog.error('webview postMessage failed', err);
     });
@@ -426,16 +566,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       await this.onWebviewReady();
       return;
     }
-    if (msg.type === 'ping' || msg.type === 'requestAiStatus') {
-      if (!this.webviewReady) {
-        await this.onWebviewReady();
-      } else {
-        await this.refreshPanel();
-      }
+    if (msg.type === 'ping' || msg.type === 'requestAiStatus' || msg.type === 'requestInit') {
+      if (!this.webviewReady) await this.onWebviewReady();
+      else await this.pushPanelInit();
+      return;
+    }
+    if (msg.type === 'reloadWebview') {
+      await this.reloadWebviewView();
       return;
     }
     if (msg.type === 'startAiService') {
-      void startAiService(this.context.extensionPath).then(() => void this.bootstrapChatPanel());
+      void startAiService(this.context.extensionPath).then(() => void this.pushPanelInit());
       return;
     }
     if (msg.type === 'listModels') {
@@ -607,18 +748,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.inlineToolJsonBuffer = '';
     toolIdCounter = 0;
 
-    this.history.append({
-      kind: 'user',
-      text,
-      mode: this.mode,
-      ts: Date.now(),
-    });
-
-    this.post({
-      type: 'runStart',
-      label: this.mode === 'plan' ? 'Planning' : 'Thinking',
-    });
-
     const greeting = isSimpleGreeting(text);
     if (greeting) {
       this.threadId = undefined;
@@ -656,6 +785,31 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       chatLog.warn('Context resolution failed, using pinned only', err);
       contextItems = getPendingContext();
     }
+
+    const userAttachments = greeting
+      ? []
+      : buildUserAttachments(contextItems, this.targetFiles);
+
+    const userTs = Date.now();
+    this.history.append({
+      kind: 'user',
+      text,
+      mode: this.mode,
+      ts: userTs,
+      attachments: userAttachments.length ? userAttachments : undefined,
+    });
+
+    this.post({
+      type: 'user',
+      text,
+      attachments: userAttachments,
+      mode: this.mode,
+    });
+
+    this.post({
+      type: 'runStart',
+      label: this.mode === 'plan' ? 'Planning' : 'Thinking',
+    });
 
     if (!greeting && (this.targetFiles.length > 0 || this.mode === 'agent')) {
       saveCheckpoint('pre-edit');

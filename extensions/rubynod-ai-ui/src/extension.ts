@@ -78,7 +78,7 @@ function warmStartAiInBackground(): void {
     if (!ok) {
       extLog.error('Background AI start failed — open Output → Rubynod');
     }
-    await getChatProviderRef()?.refreshPanel();
+    await getChatProviderRef()?.pushPanelInit();
   })();
 }
 
@@ -123,8 +123,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   setChatProviderRef(chatProvider);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chatProvider, {
-      // false = reload webview after extension update so status/models messages are not lost
-      webviewOptions: { retainContextWhenHidden: false },
+      // Keep webview alive when switching panels — avoids stuck "Loading models" on every revisit
+      webviewOptions: { retainContextWhenHidden: true },
     })
   );
 
@@ -132,8 +132,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     warmStartAiInBackground();
   }
 
-  setTimeout(() => void getChatProviderRef()?.refreshPanel(), 1500);
-  setTimeout(() => void getChatProviderRef()?.refreshPanel(), 5000);
+  setTimeout(() => void getChatProviderRef()?.pushPanelInit(), 2000);
+  setTimeout(() => void getChatProviderRef()?.pushPanelInit(), 6000);
 
   registerTabAutocomplete(context);
 
@@ -170,6 +170,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
     vscode.commands.registerCommand('rubynod.stopAiService', () => stopAiService()),
     vscode.commands.registerCommand('rubynod.showLogs', () => showRubynodOutput(false)),
+    vscode.commands.registerCommand('rubynod.reloadChatWebview', async () => {
+      await getChatProviderRef()?.reloadWebviewView();
+      await ensureRubynodReady();
+      await getChatProviderRef()?.pushPanelInit();
+      vscode.window.showInformationMessage('Rubynod chat panel reloaded.');
+    }),
     vscode.commands.registerCommand('rubynod.openSettings', () => {
       openAllRubynodSettings(context.extension.id);
     }),
@@ -187,7 +193,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand('rubynod.openChat', async () => {
       await vscode.commands.executeCommand('rubynod.chatView.focus');
-      void ensureRubynodReady();
+      await ensureRubynodReady();
+      await getChatProviderRef()?.pushPanelInit();
     }),
     vscode.commands.registerCommand('rubynod.newChat', async () => {
       await getChatProviderRef()?.startNewChat();

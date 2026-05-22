@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { getServiceUrl, getProvider, getModel, getBaseUrl } from './settings';
+import { getServiceUrl, getProvider, getModel, getBaseUrl, isShowAiStatusBarIndicator } from './settings';
 
 export class OllamaConnect implements vscode.Disposable {
   private statusItem: vscode.StatusBarItem;
@@ -90,10 +90,14 @@ export class OllamaConnect implements vscode.Disposable {
         vscode.window.showInformationMessage(`Rubynod connected to Ollama (${model})`);
       }
     } catch {
-      this.statusItem.text = '$(error) Rubynod AI offline';
-      this.statusItem.command = 'rubynod.startAiService';
-      this.statusItem.tooltip = 'Click to start Rubynod AI service (port 3847)';
-      this.statusItem.show();
+      if (isShowAiStatusBarIndicator()) {
+        this.statusItem.text = '$(error) Rubynod AI offline';
+        this.statusItem.command = 'rubynod.startAiService';
+        this.statusItem.tooltip = 'Click to start Rubynod AI service (port 3847)';
+        this.statusItem.show();
+      } else {
+        this.statusItem.hide();
+      }
     }
   }
 

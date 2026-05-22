@@ -2,7 +2,7 @@
   "name": "rubynod-ai-ui",
   "displayName": "Rubynod AI",
   "description": "Open-source AI coding assistant: agent chat, Ollama & cloud models, file edits, diff review, @ context, indexing, inline edit & tab complete.",
-  "version": "0.1.34",
+  "version": "0.1.48",
   "publisher": "RohitPatil",
   "license": "MIT",
   "icon": "media/icon-128.png",
@@ -77,6 +77,10 @@
       {
         "command": "rubynod.showLogs",
         "title": "Rubynod: Show Logs"
+      },
+      {
+        "command": "rubynod.reloadChatWebview",
+        "title": "Rubynod: Reload Chat Panel"
       },
       {
         "command": "rubynod.clearChat",
@@ -322,9 +326,27 @@
           },
           "rubynod.models.chatModel": {
             "type": "string",
-            "default": "llama3.2",
-            "description": "Model for Chat and Agent.",
+            "default": "qwen2.5-coder",
+            "markdownDescription": "Model for Chat and Agent. For Ollama, use **qwen2.5-coder** (or `qwen2.5-coder:7b`) for reliable file tools.",
             "order": 11
+          },
+          "rubynod.ui.showAiOfflineIndicator": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Show **Online/Offline** in the Rubynod chat composer. Set to **false** to hide.",
+            "order": 8
+          },
+          "rubynod.ui.showAiStatusBarIndicator": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Show **Rubynod AI online/offline** in the VS Code bottom status bar. Set to **false** to hide.",
+            "order": 9
+          },
+          "rubynod.ui.showExtensionVersion": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Show the Rubynod extension **version** in the chat composer (e.g. `v0.1.41`). Set to **false** to hide.",
+            "order": 10
           },
           "rubynod.models.tabModel": {
             "type": "string",

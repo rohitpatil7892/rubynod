@@ -432,6 +432,9 @@ export function extractRecoveryToolCalls(
     }
   }
 
+  const writeFb = extractWriteFileFallback(assistantText);
+  if (writeFb) out.push(writeFb);
+
   if (/"name"\s*:\s*"search_replace"/.test(assistantText)) {
     const p =
       extractJsonStringField(assistantText, 'path') ?? extractMentionedFilePaths(userMessage)[0];

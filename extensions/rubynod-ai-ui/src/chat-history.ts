@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { AgentMode } from './api';
 import { getWorkspaceRoot } from './settings';
+import type { UserAttachmentDisplay } from './user-attachments';
 
 const STORAGE_VERSION = 2;
 const MAX_SESSIONS = 50;
@@ -8,7 +9,13 @@ const MAX_ENTRIES_PER_SESSION = 400;
 const DEFAULT_TITLE = 'New Chat';
 
 export type ChatHistoryEntry =
-  | { kind: 'user'; text: string; mode: AgentMode; ts: number }
+  | {
+      kind: 'user';
+      text: string;
+      mode: AgentMode;
+      ts: number;
+      attachments?: UserAttachmentDisplay[];
+    }
   | { kind: 'assistant'; text: string; ts: number }
   | {
       kind: 'tool';
