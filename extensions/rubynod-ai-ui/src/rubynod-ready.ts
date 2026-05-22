@@ -1,3 +1,4 @@
+import { extLog } from './logger';
 import { ensureAiServiceStarted } from './ai-service';
 import { registerBridge } from './api';
 
@@ -15,19 +16,28 @@ export function getRubynodExtensionPath(): string {
 
 /** Start bundled AI agent (if needed) and register the IDE bridge. */
 export async function ensureRubynodReady(): Promise<boolean> {
-  if (!extensionPath) return false;
+  if (!extensionPath) {
+    extLog.warn('ensureRubynodReady: extension path not configured');
+    return false;
+  }
+  extLog.debug('ensureRubynodReady: starting AI service');
   const ok = await ensureAiServiceStarted(extensionPath);
-  if (!ok) return false;
+  if (!ok) {
+    extLog.error('ensureRubynodReady: AI service failed to start');
+    return false;
+  }
   if (bridgePort > 0) {
     try {
       await registerBridge(bridgePort);
-    } catch {
-      // AI may be up but bridge registration races on first connect — retry once
+      extLog.debug('Bridge registered', { bridgePort });
+    } catch (err) {
+      extLog.warn('Bridge register failed, retrying', err instanceof Error ? err.message : String(err));
       await new Promise((r) => setTimeout(r, 300));
       try {
         await registerBridge(bridgePort);
-      } catch {
-        // non-fatal until first agent run
+        extLog.debug('Bridge registered on retry', { bridgePort });
+      } catch (err2) {
+        extLog.warn('Bridge register retry failed', err2 instanceof Error ? err2.message : String(err2));
       }
     }
   }

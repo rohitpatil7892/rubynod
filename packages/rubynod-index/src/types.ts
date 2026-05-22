@@ -40,6 +40,11 @@ export interface IndexStats {
   symbolCount: number;
   lastIndexedAt: string | null;
   indexing: boolean;
+  /** Set after a full build — helps diagnose empty indexes */
+  filesDiscovered?: number;
+  filesSkippedLarge?: number;
+  filesSkippedEmpty?: number;
+  filesSkippedError?: number;
 }
 
 export interface ContextPack {

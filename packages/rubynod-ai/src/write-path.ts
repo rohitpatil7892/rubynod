@@ -56,6 +56,7 @@ export function resolveWritePath(
   contents: string
 ): { path: string; corrected: boolean } {
   let p = requestedPath.trim().replace(/\\/g, '/');
+  while (p.startsWith('@')) p = p.slice(1);
   if (!p) return { path: 'server.js', corrected: true };
   if (p.startsWith('/')) p = p.replace(/^\/+/, '');
 

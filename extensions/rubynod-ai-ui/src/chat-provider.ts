@@ -15,6 +15,7 @@ import { pickContext, type ContextAttachment } from './context';
 import { streamAgent, cancelAgent, type AgentMode } from './api';
 import { formatAiConnectionError, isAiServiceHealthy, startAiService } from './ai-service';
 import { ensureRubynodReady } from './rubynod-ready';
+import { chatLog, webviewLog } from './logger';
 import {
   addPendingDiff,
   acceptDiff,
@@ -36,9 +37,29 @@ import {
   defaultBaseUrlForProvider,
   type ChatProviderId,
 } from './model-catalog';
-import { listOllamaModelsForChat } from './ollama-models';
+import { labelOllamaModelForPicker, listOllamaModelsForChat } from './ollama-models';
 
 let toolIdCounter = 0;
+
+/** Hide leaked tool syntax (JSON, python_tag, bare write_file) before server strips it. */
+function mightBeLeakedToolText(text: string): boolean {
+  if (/<\|python_tag\|>/i.test(text)) return true;
+  if (/\bwrite_file\s*\(\s*contents\s*=/i.test(text)) return true;
+  if (/^\s*\{\s*"(?:import|export|const|let|require)\s/m.test(text)) return true;
+  if (/## Context: file —/i.test(text)) return true;
+  if (/^json\s*$/i.test(text.trim())) return true;
+  if (/```json/i.test(text) && /\{\s*"name/i.test(text)) return true;
+  if (/^\s*\{\s*"name/i.test(text.trim())) return true;
+  if (/"dependencies"\s*:\s*\{/.test(text) && /"name"\s*:\s*"/.test(text)) return true;
+  const t = text.trimStart();
+  if (!t.startsWith('{')) return false;
+  if (
+    /"name"\s*:\s*"(?:write_file|read_file|search_replace|run_terminal|glob|grep)"/.test(t)
+  ) {
+    return true;
+  }
+  return /^\{\s*"name"\s*:\s*"?/.test(t);
+}
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'rubynod.chatView';
@@ -48,6 +69,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private running = false;
   private activeTools = new Map<string, { name: string; args: Record<string, unknown> }>();
   private turnAssistantText = '';
+  private inlineToolJsonBuffer = '';
   /** Multi-file edit targets (formerly Composer-only). */
   private targetFiles: string[] = [];
   private readonly history: ChatHistory;
@@ -148,7 +170,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         return this.refreshPanel();
       })
       .catch((err) => {
-        console.error('[rubynod-ai-ui] ensureRubynodReady in setupWebview:', err);
+        chatLog.error('ensureRubynodReady in setupWebview failed', err);
       });
 
     const webview = webviewView.webview;
@@ -156,7 +178,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     this.messageDisposable = webview.onDidReceiveMessage((msg) => {
       void this.handleMessage(msg).catch((err) => {
-        console.error('[rubynod-ai-ui] chat webview message failed:', err);
+        chatLog.error(`webview message failed (type=${msg?.type})`, err);
       });
     });
 
@@ -257,6 +279,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const provider = (requestedProvider || getProvider()) as ChatProviderId;
     const current = getModel();
     let models: string[] = [];
+    let modelLabels: Record<string, string> | undefined;
     let picked = current;
     let error: string | undefined;
 
@@ -266,13 +289,28 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     if (provider === 'ollama') {
       const ollama = await listOllamaModelsForChat();
-      models = ollama.models;
+      models = ollama.models.map((m) => m.name);
+      modelLabels = Object.fromEntries(
+        ollama.models.map((m) => [m.name, labelOllamaModelForPicker(m)])
+      );
       error = ollama.error;
-      picked = models.includes(current)
-        ? current
-        : (ollama.suggested ?? models[0] ?? current);
+      const suggested = ollama.suggested;
+      const currentEntry = ollama.models.find((m) => m.name === current);
+      if (currentEntry?.supportsTools === false && suggested && models.includes(suggested)) {
+        picked = suggested;
+      } else {
+        picked = models.includes(current)
+          ? current
+          : suggested && models.includes(suggested)
+            ? suggested
+            : (models[0] ?? current);
+      }
       if (picked && models.length && !models.includes(picked)) {
         models = [picked, ...models];
+        modelLabels[picked] = labelOllamaModelForPicker({
+          name: picked,
+          supportsTools: ollama.models.find((m) => m.name === picked)?.supportsTools,
+        });
       }
     } else {
       models = cloudModelsForProvider(provider, current);
@@ -292,6 +330,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       provider,
       providers: CHAT_PROVIDERS,
       models,
+      modelLabels,
       current: picked,
       showPicker: true,
       error,
@@ -340,7 +379,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const webview = this.view?.webview;
     if (!webview) return;
     void webview.postMessage(msg).then(undefined, (err) => {
-      console.error('[rubynod-ai-ui] webview postMessage failed:', err);
+      chatLog.error('webview postMessage failed', err);
     });
   }
 
@@ -358,6 +397,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     file?: string;
     sessionId?: string;
   }) {
+    chatLog.debug('webview → extension', { type: msg.type });
+    if (msg.type === 'log' && msg.text) {
+      webviewLog.debug(String(msg.text));
+      return;
+    }
     if (msg.type === 'listSessions') {
       this.post({ type: 'sessions', sessions: this.history.listSessions(), activeId: this.history.getActiveSessionId() });
       return;
@@ -372,6 +416,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
     if (msg.type === 'deleteSession' && msg.sessionId) {
       await this.removeSession(msg.sessionId);
+      return;
+    }
+    if (msg.type === 'openSettings') {
+      await vscode.commands.executeCommand('rubynod.openSettings');
       return;
     }
     if (msg.type === 'webviewReady') {
@@ -538,6 +586,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (this.running) return;
 
     if (!(await ensureRubynodReady())) {
+      chatLog.error('Chat run aborted: Rubynod AI offline');
       this.post({
         type: 'error',
         message:
@@ -546,9 +595,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
+    chatLog.info('Chat run started', {
+      mode: this.mode,
+      model: modelOverride,
+      provider: providerOverride,
+      preview: text.slice(0, 100),
+    });
     this.running = true;
     this.activeTools.clear();
     this.turnAssistantText = '';
+    this.inlineToolJsonBuffer = '';
     toolIdCounter = 0;
 
     this.history.append({
@@ -592,7 +648,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         contextMap.set(`file:${f}`, { type: 'file', label: f, content: `(edit target: ${f})` });
       }
       contextItems = [...contextMap.values()];
-    } catch {
+      chatLog.debug('Context attachments', {
+        count: contextItems.length,
+        labels: contextItems.map((c) => c.label),
+      });
+    } catch (err) {
+      chatLog.warn('Context resolution failed, using pinned only', err);
       contextItems = getPendingContext();
     }
 
@@ -603,6 +664,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const composerFiles =
       !greeting && this.targetFiles.length > 0 ? [...this.targetFiles] : undefined;
     let errorMessage: string | undefined;
+    let toolsRan = 0;
 
     try {
       for await (const event of streamAgent({
@@ -618,7 +680,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           const d = event.data as { text: string; threadId?: string };
           if (d.threadId) this.threadId = d.threadId;
           this.turnAssistantText += d.text;
-          this.post({ type: 'text', text: d.text });
+          this.inlineToolJsonBuffer += d.text;
+          if (!mightBeLeakedToolText(this.inlineToolJsonBuffer)) {
+            this.post({ type: 'text', text: d.text });
+          }
         }
 
         if (event.type === 'thinking') {
@@ -658,26 +723,53 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (event.type === 'tool_start') {
           const d = event.data as { id?: string; name: string; args: Record<string, unknown> };
           const id = d.id ?? `t-${++toolIdCounter}`;
+          chatLog.info('Tool start', { id, name: d.name, path: d.args?.path });
           this.activeTools.set(id, { name: d.name, args: d.args ?? {} });
           this.post({ type: 'toolStart', id, name: d.name, args: d.args ?? {} });
         }
 
         if (event.type === 'tool_end') {
-          const d = event.data as { id?: string; name: string; result: string };
+          const d = event.data as {
+            id?: string;
+            name: string;
+            result: string;
+            writtenPath?: string;
+            writtenContents?: string;
+          };
           const id = d.id ?? [...this.activeTools.keys()].pop() ?? `t-${toolIdCounter}`;
           const tool = this.activeTools.get(id) ?? { name: d.name, args: {} };
           const ok = !d.result.startsWith('Error:') && !d.result.startsWith('Rejected');
-          this.post({ type: 'toolEnd', id, name: tool.name, result: d.result, ok });
-          this.saveToolToHistory(id, tool.name, tool.args, d.result, ok);
+          const args =
+            d.writtenContents && tool.name === 'write_file'
+              ? { ...tool.args, path: d.writtenPath ?? tool.args.path, contents: d.writtenContents }
+              : tool.args;
+          this.post({
+            type: 'toolEnd',
+            id,
+            name: tool.name,
+            args,
+            result: d.result,
+            ok,
+          });
+          chatLog.info('Tool end', {
+            id,
+            name: d.name,
+            ok,
+            resultPreview: d.result.slice(0, 200),
+          });
+          this.saveToolToHistory(id, tool.name, args, d.result, ok);
           this.activeTools.delete(id);
+          if (ok) toolsRan++;
         }
 
         if (event.type === 'diff') {
           const d = event.data as { file: string; oldContent: string; newContent: string };
           this.post({ type: 'diff', file: d.file });
           void addPendingDiff(d).then(() => this.refreshPendingDiffs());
-          this.turnAssistantText += `\n\n📝 Diff ready: **${d.file}** — review below\n`;
-          this.post({ type: 'text', text: `\n\n📝 Diff ready: **${d.file}** — review below\n` });
+          const note =
+            `\n\n**Proposed change:** \`${d.file}\` — **Accept** applies it, **Reject** discards it (nothing is saved until you Accept).\n`;
+          this.turnAssistantText += note;
+          this.post({ type: 'text', text: note });
         }
 
         if (event.type === 'plan') {
@@ -694,11 +786,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (event.type === 'error') {
           const d = event.data as { message: string };
           errorMessage = d.message;
+          chatLog.error('Agent error event', d.message);
           this.post({ type: 'error', message: d.message });
         }
       }
+      if (
+        !errorMessage &&
+        toolsRan === 0 &&
+        /@\S+\.[a-z0-9]{1,8}/i.test(text) &&
+        (/```json|^\s*json\s*$|\{\s*"name/im.test(this.turnAssistantText) ||
+          !this.turnAssistantText.trim())
+      ) {
+        errorMessage =
+          'No file changes were applied. The model only returned broken tool JSON. ' +
+          'Switch to **qwen2.5-coder:7b** (Settings → Rubynod → Chat model), reload the window, and retry.';
+        chatLog.warn('Chat finished with no tools and leaked JSON in UI', {
+          preview: this.turnAssistantText.slice(0, 100),
+        });
+        this.post({ type: 'error', message: errorMessage });
+      }
+      chatLog.info('Chat run finished', { threadId: this.threadId, error: !!errorMessage, toolsRan });
     } catch (e) {
       errorMessage = formatAiConnectionError(e);
+      chatLog.error('Chat run exception', e);
       this.post({
         type: 'error',
         message: errorMessage,

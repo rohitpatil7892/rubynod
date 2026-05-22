@@ -9,6 +9,7 @@ export class IndexStore {
   private db: Database;
   private readonly dbPath: string;
   private dirty = false;
+  private batchDepth = 0;
 
   constructor(workspaceRoot: string) {
     const dir = path.join(workspaceRoot, '.rubynod', 'index');
@@ -25,8 +26,18 @@ export class IndexStore {
     this.flush();
   }
 
-  private flush(): void {
+  beginBatch(): void {
+    this.batchDepth++;
+  }
+
+  endBatch(): void {
+    this.batchDepth = Math.max(0, this.batchDepth - 1);
+    if (this.batchDepth === 0) this.flush(true);
+  }
+
+  private flush(force = false): void {
     if (!this.dirty) return;
+    if (this.batchDepth > 0 && !force) return;
     const data = this.db.export();
     fs.writeFileSync(this.dbPath, Buffer.from(data));
     this.dirty = false;

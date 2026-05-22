@@ -62,6 +62,10 @@ export function getChatHtml(
     border-bottom: 1px solid var(--rn-border);
     background: var(--rn-surface);
     min-width: 0;
+    min-height: 44px;
+    position: sticky;
+    top: 0;
+    z-index: 30;
   }
   .chat-header-main {
     flex: 1;
@@ -86,25 +90,35 @@ export function getChatHtml(
     width: 28px;
     height: 28px;
     padding: 0;
-    border: none;
+    border: 1px solid var(--rn-border);
     border-radius: var(--rn-radius-sm);
-    background: transparent;
-    color: var(--rn-muted);
+    background: var(--rn-surface-2);
+    color: var(--rn-text);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.15s, color 0.15s;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    flex-shrink: 0;
   }
   .header-icon-btn:hover,
   .header-icon-btn.active {
     background: var(--rn-accent-soft);
     color: var(--rn-text);
+    border-color: var(--rn-accent);
+  }
+  .header-icon-btn .gear-char {
+    font-size: 15px;
+    line-height: 1;
+    font-weight: 600;
   }
   .header-icon-btn svg {
     width: 16px;
     height: 16px;
     fill: currentColor;
+  }
+  .chat-header-actions .settings-header-btn {
+    min-width: 28px;
   }
   .history-panel {
     position: absolute;
@@ -253,6 +267,15 @@ export function getChatHtml(
   }
   .toolbar-text-btn:hover { color: var(--rn-text); border-color: var(--rn-accent); }
   .toolbar-text-btn.hidden { display: none; }
+  .toolbar-text-btn.settings-toolbar-btn {
+    color: var(--rn-text);
+    border-color: color-mix(in srgb, var(--rn-accent) 35%, var(--rn-border));
+    font-weight: 600;
+  }
+  .toolbar-text-btn.settings-toolbar-btn:hover {
+    border-color: var(--rn-accent);
+    background: var(--rn-accent-soft);
+  }
   .diff-card {
     border: 1px solid var(--rn-accent);
     border-radius: var(--rn-radius);
@@ -710,6 +733,9 @@ export function getChatHtml(
       <span id="session-title" class="session-title">New Chat</span>
     </div>
     <div class="chat-header-actions">
+      <button type="button" id="settings-btn" class="header-icon-btn settings-header-btn" title="Rubynod settings (model, indexing, agent)" aria-label="Rubynod settings">
+        <span class="gear-char" aria-hidden="true">⚙</span>
+      </button>
       <button type="button" id="history-btn" class="header-icon-btn" title="Chat history" aria-label="Chat history">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8zm7.5-.5v4l3.25 1.9.75-1.28L9.5 9.27V7.5H7.5z"/></svg>
       </button>
@@ -768,6 +794,7 @@ export function getChatHtml(
             <button type="button" class="icon-btn" id="ctx-btn" title="Add context (@)">@</button>
             <button type="button" class="toolbar-text-btn" id="tabs-btn" title="Add open editor tabs">Tabs</button>
             <button type="button" class="toolbar-text-btn" id="checkpoint-btn" title="Save checkpoint">Save</button>
+            <button type="button" class="toolbar-text-btn settings-toolbar-btn" id="settings-toolbar-btn" title="Open Rubynod settings (model, indexing, agent)">Settings</button>
             <button type="button" class="toolbar-text-btn hidden" id="accept-all-btn" title="Accept all">Accept</button>
             <button type="button" class="toolbar-text-btn hidden" id="reject-all-btn" title="Reject all">Reject</button>
           </div>
@@ -813,6 +840,7 @@ export function getChatHtml(
   const modelSelect = document.getElementById('model');
   const providerSelect = document.getElementById('provider');
   const sessionTitleEl = document.getElementById('session-title');
+  const settingsBtn = document.getElementById('settings-btn');
   const historyBtn = document.getElementById('history-btn');
   const newChatBtn = document.getElementById('new-chat-btn');
   const historyPanel = document.getElementById('history-panel');
@@ -893,6 +921,12 @@ export function getChatHtml(
     else openHistoryPanel();
   }
 
+  function openRubynodSettings() {
+    vscode.postMessage({ type: 'openSettings' });
+  }
+  if (settingsBtn) settingsBtn.onclick = openRubynodSettings;
+  const settingsToolbarBtn = document.getElementById('settings-toolbar-btn');
+  if (settingsToolbarBtn) settingsToolbarBtn.onclick = openRubynodSettings;
   if (historyBtn) historyBtn.onclick = toggleHistoryPanel;
   if (historyClose) historyClose.onclick = closeHistoryPanel;
   if (newChatBtn) newChatBtn.onclick = () => {
@@ -942,10 +976,11 @@ export function getChatHtml(
       return;
     }
 
+    const labels = data.modelLabels || {};
     models.forEach(function(name) {
       const opt = document.createElement('option');
       opt.value = name;
-      opt.textContent = name;
+      opt.textContent = labels[name] || name;
       if (name === pickModel) opt.selected = true;
       modelSelect.appendChild(opt);
     });
@@ -1042,9 +1077,19 @@ export function getChatHtml(
     try {
       var r = await fetch(base + '/ollama/models?host=' + host, { signal: rnFetchTimeout(10000) });
       var j = await r.json();
-      var models = (j.models || []).map(function(m) { return m.name || m; }).filter(Boolean);
+      var models = [];
+      var modelLabels = {};
+      (j.models || []).forEach(function(m) {
+        var name = typeof m === 'string' ? m : (m && m.name);
+        if (!name) return;
+        models.push(name);
+        if (m && m.supportsTools === false) {
+          modelLabels[name] = name + ' (no agent tools)';
+        }
+      });
       fillChatModels({
         models: models,
+        modelLabels: modelLabels,
         current: j.suggested || models[0] || '',
         provider: 'ollama',
         providers: RN.providers,
@@ -1444,7 +1489,7 @@ export function getChatHtml(
     scroll();
   }
 
-  function endTool(id, name, result, ok) {
+  function endTool(id, name, result, ok, argsOverride) {
     const card = state.toolCards[id];
     if (!card) return;
     card.classList.remove('running');
@@ -1452,7 +1497,7 @@ export function getChatHtml(
     status.className = 'tool-status';
     status.textContent = ok === false ? 'Failed' : 'Done';
     const body = card.querySelector('.tool-body');
-    const args = state.toolArgs[id] || {};
+    const args = argsOverride || state.toolArgs[id] || {};
     if (name === 'write_file' && writeFileContents(args)) {
       body.innerHTML = toolBodyWriteHtml(args);
       if (result) body.insertAdjacentHTML('beforeend', '<div class="tool-result">' + escapeHtml(String(result)) + '</div>');
@@ -1560,9 +1605,9 @@ export function getChatHtml(
     card.className = 'diff-card';
     card.dataset.file = file;
     card.innerHTML =
-      '<span class="diff-file">📝 ' + escapeHtml(file) + '</span>' +
-      '<button type="button" class="accept">Accept</button>' +
-      '<button type="button" class="reject">Reject</button>';
+      '<span class="diff-file">📝 ' + escapeHtml(file) + ' <span style="opacity:0.75;font-weight:400">— Accept to apply, Reject to discard</span></span>' +
+      '<button type="button" class="accept" title="Write this change to disk">Accept</button>' +
+      '<button type="button" class="reject" title="Discard; file stays unchanged">Reject</button>';
     card.querySelector('.accept').onclick = () => vscode.postMessage({ type: 'acceptDiff', file });
     card.querySelector('.reject').onclick = () => vscode.postMessage({ type: 'rejectDiff', file });
     thread.appendChild(card);
@@ -1623,7 +1668,7 @@ export function getChatHtml(
         startTool(m.id, m.name, m.args);
         break;
       case 'toolEnd':
-        endTool(m.id, m.name, m.result, m.ok);
+        endTool(m.id, m.name, m.result, m.ok, m.args);
         break;
       case 'diff':
         showDiffCard(m.file);

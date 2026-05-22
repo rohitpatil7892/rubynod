@@ -2,18 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { IndexChunk } from './types.js';
 import { chunkFileSmart } from './symbol-chunker.js';
-
-const MAX_CHUNK_LINES = 80;
-const OVERLAP_LINES = 8;
+import { shouldIndexDirectory, shouldIndexFile } from './ignore.js';
 
 export function chunkFile(filePath: string, content: string): IndexChunk[] {
   return chunkFileSmart(filePath, content);
 }
 
-export function walkWorkspace(
-  root: string,
-  shouldInclude: (rel: string) => boolean
-): string[] {
+export function walkWorkspace(root: string, workspaceRoot?: string): string[] {
+  const wsRoot = path.resolve(workspaceRoot ?? root);
   const files: string[] = [];
 
   function walk(dir: string, relBase: string) {
@@ -25,17 +21,18 @@ export function walkWorkspace(
     }
     for (const ent of entries) {
       const rel = relBase ? `${relBase}/${ent.name}` : ent.name;
-      if (!shouldInclude(rel)) continue;
       const full = path.join(dir, ent.name);
       if (ent.isDirectory()) {
+        if (!shouldIndexDirectory(rel, wsRoot)) continue;
         walk(full, rel);
       } else if (ent.isFile()) {
+        if (!shouldIndexFile(rel, wsRoot)) continue;
         files.push(full);
       }
     }
   }
 
-  walk(root, '');
+  walk(path.resolve(root), '');
   return files;
 }
 

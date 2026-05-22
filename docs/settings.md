@@ -13,7 +13,8 @@ Open in VS Code: **Cmd+,** → search `rubynod`, or run **Rubynod: Open Settings
 | Privacy mode | `rubynod.privacy.privacyMode` |
 | YOLO / auto-run terminal | `rubynod.agent.yoloMode` or `rubynod.agent.autoApproveTerminal` |
 | MCP servers | `rubynod.mcp.enabled` + `~/.rubynod/mcp.json` |
-| Rules for AI | `.rubynod/rules/`, `AGENTS.md` (not a setting — project files) |
+| Rules for AI | `.rubynod/rules/`, `AGENTS.md` — use clickable links in **Rubynod Rules, Skills & MCP** settings |
+| Open Rules / Skills / MCP from Settings | Click links in settings UI or Command Palette |
 
 ## Sections
 

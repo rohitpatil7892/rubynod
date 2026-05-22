@@ -1,46 +1,102 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { minimatch } from 'minimatch';
+import ignore, { type Ignore } from 'ignore';
 
 const DEFAULT_IGNORE = [
-  '**/.git/**',
-  '**/node_modules/**',
-  '**/dist/**',
-  '**/build/**',
-  '**/.rubynod/**',
-  '**/vendor/**',
-  '**/*.min.js',
-  '**/*.map',
+  '.git',
+  'node_modules',
+  'dist',
+  'build',
+  '.rubynod',
+  'vendor',
+  '.next',
+  'coverage',
+  'target',
+  'out',
+  '__pycache__',
+  '.turbo',
+  '*.min.js',
+  '*.map',
 ];
 
-function loadPatterns(workspaceRoot: string): string[] {
-  const patterns = [...DEFAULT_IGNORE];
+const TEXT_EXTS = new Set([
+  '.ts', '.tsx', '.js', '.jsx', '.json', '.md', '.py', '.go', '.rs',
+  '.java', '.kt', '.rb', '.php', '.cs', '.cpp', '.c', '.h', '.hpp',
+  '.sql', '.yaml', '.yml', '.toml', '.xml', '.html', '.css', '.scss',
+  '.vue', '.svelte', '.sh', '.bash', '.zsh', '.graphql',
+]);
+
+type MatcherCache = {
+  matcher: Ignore;
+  signature: string;
+};
+
+const matcherByRoot = new Map<string, MatcherCache>();
+
+function configSignature(workspaceRoot: string): string {
+  const names = ['.gitignore', '.rubynodignore', '.cursorignore'];
+  const parts = [workspaceRoot];
+  for (const name of names) {
+    const p = path.join(workspaceRoot, name);
+    try {
+      const st = fs.statSync(p);
+      parts.push(`${name}:${st.mtimeMs}:${st.size}`);
+    } catch {
+      parts.push(`${name}:missing`);
+    }
+  }
+  return parts.join('|');
+}
+
+function buildMatcher(workspaceRoot: string): Ignore {
+  const ig = ignore();
+  for (const pat of DEFAULT_IGNORE) {
+    ig.add(pat);
+    if (!pat.includes('/')) ig.add(`${pat}/`);
+  }
   for (const name of ['.gitignore', '.rubynodignore', '.cursorignore']) {
     const p = path.join(workspaceRoot, name);
     if (fs.existsSync(p)) {
-      const lines = fs.readFileSync(p, 'utf8').split('\n');
-      for (const line of lines) {
-        const t = line.trim();
-        if (t && !t.startsWith('#')) patterns.push(t);
-      }
+      ig.add(fs.readFileSync(p, 'utf8'));
     }
   }
-  return patterns;
+  return ig;
 }
 
+/** Cached gitignore-style matcher (rebuilt when ignore files change). */
+export function getIndexIgnoreMatcher(workspaceRoot: string): Ignore {
+  const root = path.resolve(workspaceRoot);
+  const signature = configSignature(root);
+  const cached = matcherByRoot.get(root);
+  if (cached && cached.signature === signature) return cached.matcher;
+  const matcher = buildMatcher(root);
+  matcherByRoot.set(root, { matcher, signature });
+  return matcher;
+}
+
+export function isIndexableExtension(relativePath: string): boolean {
+  const ext = path.extname(relativePath).toLowerCase();
+  return TEXT_EXTS.has(ext) || !ext;
+}
+
+/** @deprecated Use getIndexIgnoreMatcher — kept for tests/tools */
 export function shouldIndex(relativePath: string, workspaceRoot: string): boolean {
   const normalized = relativePath.replace(/\\/g, '/');
-  const patterns = loadPatterns(workspaceRoot);
-  for (const pat of patterns) {
-    if (minimatch(normalized, pat, { dot: true })) return false;
-    if (minimatch(normalized, `**/${pat}`, { dot: true })) return false;
-  }
-  const ext = path.extname(normalized).toLowerCase();
-  const textExts = new Set([
-    '.ts', '.tsx', '.js', '.jsx', '.json', '.md', '.py', '.go', '.rs',
-    '.java', '.kt', '.rb', '.php', '.cs', '.cpp', '.c', '.h', '.hpp',
-    '.sql', '.yaml', '.yml', '.toml', '.xml', '.html', '.css', '.scss',
-    '.vue', '.svelte', '.sh', '.bash', '.zsh', '.dockerfile', '.graphql',
-  ]);
-  return textExts.has(ext) || !ext;
+  const ig = getIndexIgnoreMatcher(workspaceRoot);
+  if (ig.ignores(normalized) || ig.ignores(`${normalized}/`)) return false;
+  return isIndexableExtension(normalized);
+}
+
+export function shouldIndexDirectory(relativePath: string, workspaceRoot: string): boolean {
+  const normalized = relativePath.replace(/\\/g, '/');
+  if (!normalized) return true;
+  const ig = getIndexIgnoreMatcher(workspaceRoot);
+  return !ig.ignores(`${normalized}/`);
+}
+
+export function shouldIndexFile(relativePath: string, workspaceRoot: string): boolean {
+  const normalized = relativePath.replace(/\\/g, '/');
+  const ig = getIndexIgnoreMatcher(workspaceRoot);
+  if (ig.ignores(normalized)) return false;
+  return isIndexableExtension(normalized);
 }

@@ -10,11 +10,13 @@ import {
 } from './settings';
 import type { ContextAttachment } from './context';
 import { getBridgePort } from './bridge-server';
+import { agentLog } from './logger';
 import { ensureRubynodReady } from './rubynod-ready';
 
 export type AgentMode = 'agent' | 'plan' | 'ask' | 'debug';
 
 export async function registerBridge(port: number): Promise<void> {
+  agentLog.debug('Registering IDE bridge', { port, serviceUrl: getServiceUrl() });
   await fetch(`${getServiceUrl()}/bridge/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -34,6 +36,14 @@ export async function* streamAgent(opts: {
   provider?: string;
 }): AsyncGenerator<{ type: string; data: unknown }> {
   await ensureRubynodReady();
+  agentLog.info('Agent run started', {
+    mode: opts.mode,
+    model: opts.model,
+    provider: opts.provider,
+    threadId: opts.threadId,
+    messagePreview: opts.message.slice(0, 120),
+    contextCount: opts.context?.length ?? 0,
+  });
   const clientSettings = getClientSettings();
   const model = opts.model?.trim() || clientSettings.model;
   const provider = (opts.provider?.trim() || clientSettings.provider) as typeof clientSettings.provider;
@@ -68,9 +78,11 @@ export async function* streamAgent(opts: {
   });
 
   if (!res.ok || !res.body) {
+    agentLog.error('Agent HTTP failed', { status: res.status, url: `${getServiceUrl()}/agent/run` });
     throw new Error(`Agent request failed: ${res.status}`);
   }
 
+  agentLog.debug('Agent SSE stream open');
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -84,20 +96,28 @@ export async function* streamAgent(opts: {
     for (const line of lines) {
       if (line.startsWith('data: ')) {
         try {
-          yield JSON.parse(line.slice(6)) as { type: string; data: unknown };
-        } catch {
-          // skip
+          const event = JSON.parse(line.slice(6)) as { type: string; data: unknown };
+          agentLog.debug('SSE event', { type: event.type });
+          yield event;
+        } catch (err) {
+          agentLog.warn('SSE parse failed', {
+            line: line.slice(0, 200),
+            err: err instanceof Error ? err.message : String(err),
+          });
         }
       }
     }
   }
   if (buffer.startsWith('data: ')) {
     try {
-      yield JSON.parse(buffer.slice(6)) as { type: string; data: unknown };
-    } catch {
-      // skip
+      const event = JSON.parse(buffer.slice(6)) as { type: string; data: unknown };
+      agentLog.debug('SSE event (tail)', { type: event.type });
+      yield event;
+    } catch (err) {
+      agentLog.warn('SSE tail parse failed', err instanceof Error ? err.message : String(err));
     }
   }
+  agentLog.info('Agent run stream ended');
 }
 
 export async function cancelAgent(threadId: string): Promise<void> {

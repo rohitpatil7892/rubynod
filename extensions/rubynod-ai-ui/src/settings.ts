@@ -120,6 +120,11 @@ export function isYoloMode(): boolean {
   return cfg('agent.yoloMode', false);
 }
 
+/** When true, agent file edits stay staged until you Accept in chat (Reject discards). */
+export function requiresFileApproval(): boolean {
+  return !isYoloMode() && !isAutoApproveFileWrites();
+}
+
 export function isAutoIndexOnSave(): boolean {
   return cfg('index.autoIndexOnSave', true);
 }
@@ -186,7 +191,12 @@ export function getWorkspaceRoot(): string {
 /** Multi-root: prefer folder of active editor, else first workspace folder */
 export function getWorkspaceRootForUri(uri?: vscode.Uri): string {
   const folders = vscode.workspace.workspaceFolders;
-  if (!folders?.length) return process.cwd();
+  if (!folders?.length) {
+    console.warn(
+      '[rubynod] No workspace folder open — indexing uses process.cwd(). Use File → Open Folder on your project.'
+    );
+    return process.cwd();
+  }
 
   if (uri) {
     const match = vscode.workspace.getWorkspaceFolder(uri);

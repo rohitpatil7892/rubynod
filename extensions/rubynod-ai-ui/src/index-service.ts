@@ -81,12 +81,28 @@ export class IndexService implements vscode.Disposable {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const json = (await res.json()) as { stats?: { chunkCount: number; fileCount: number } };
+      const json = (await res.json()) as {
+        stats?: {
+          chunkCount: number;
+          fileCount: number;
+          filesDiscovered?: number;
+          filesSkippedLarge?: number;
+        };
+      };
       await this.refreshStatus();
       if (!silent && json.stats) {
-        vscode.window.showInformationMessage(
-          `Rubynod index ready: ${json.stats.chunkCount} chunks from ${json.stats.fileCount} files`
-        );
+        const s = json.stats;
+        const msg = `Rubynod index ready: ${s.chunkCount} chunks from ${s.fileCount} files`;
+        if (s.fileCount === 0) {
+          const discovered = s.filesDiscovered ?? 0;
+          const hint =
+            discovered === 0
+              ? `${msg}\n\nNo indexable files found. Open the project folder (File → Open Folder), or check .gitignore / .rubynodignore — they may exclude all source files.`
+              : `${msg}\n\nFound ${discovered} paths but indexed none (files may be >512KB, empty, or unreadable). Add a .rubynodignore exception or lower ignored paths.`;
+          vscode.window.showWarningMessage(hint);
+        } else {
+          vscode.window.showInformationMessage(msg);
+        }
       }
     };
 

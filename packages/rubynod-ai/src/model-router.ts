@@ -1,5 +1,18 @@
 import OpenAI from 'openai';
 import type { ChatMessage } from './types.js';
+import { formatOllamaNoToolsModelError } from './ollama.js';
+import { agentLog } from './logger.js';
+
+function ollamaToolsUnsupportedMessage(err: unknown): string | null {
+  const msg =
+    err instanceof Error
+      ? err.message
+      : typeof err === 'object' && err && 'message' in err
+        ? String((err as { message?: unknown }).message)
+        : String(err);
+  if (/does not support tools/i.test(msg)) return msg;
+  return null;
+}
 
 export interface ModelConfig {
   provider: 'openai' | 'anthropic' | 'ollama' | 'openrouter';
@@ -56,7 +69,8 @@ export class ModelRouter {
 
   async *streamChat(
     messages: ChatMessage[],
-    tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
+    tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
+    opts?: { toolChoice?: 'auto' | 'required' | 'none' }
   ): AsyncGenerator<{
     type: 'text' | 'tool_calls';
     text?: string;
@@ -69,14 +83,46 @@ export class ModelRouter {
       return { role: m.role as 'system' | 'user' | 'assistant', content: m.content };
     });
 
-    const stream = await this.client.chat.completions.create({
+    const toolChoice =
+      tools?.length && opts?.toolChoice && opts.toolChoice !== 'none' ? opts.toolChoice : undefined;
+
+    const requestBody = {
       model: this.model,
       messages: openaiMessages,
       tools: tools?.length ? tools : undefined,
-      stream: true,
+      ...(toolChoice ? { tool_choice: toolChoice } : {}),
+      stream: true as const,
       temperature: this.temperature,
       max_tokens: this.maxTokens,
-    });
+    };
+
+    let stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
+    try {
+      stream = await this.client.chat.completions.create(requestBody);
+    } catch (err) {
+      if (toolChoice === 'required' && ollamaToolsUnsupportedMessage(err)) {
+        agentLog.warn('Model rejected tool_choice=required; retrying with auto', {
+          model: this.model,
+        });
+        const { tool_choice: _removed, ...withoutRequired } = requestBody;
+        try {
+          stream = await this.client.chat.completions.create(withoutRequired);
+        } catch (retryErr) {
+          if (ollamaToolsUnsupportedMessage(retryErr)) {
+            throw new Error(formatOllamaNoToolsModelError(this.model));
+          }
+          throw retryErr;
+        }
+      } else if (ollamaToolsUnsupportedMessage(err)) {
+        throw new Error(formatOllamaNoToolsModelError(this.model));
+      } else {
+        throw err;
+      }
+    }
+
+    if (toolChoice) {
+      agentLog.debug('Chat completion tool_choice', { toolChoice });
+    }
 
     let toolCalls: Array<{ id: string; name: string; arguments: string }> = [];
 
@@ -99,6 +145,13 @@ export class ModelRouter {
     }
 
     if (toolCalls.length) {
+      agentLog.debug('Model native tool_calls', {
+        count: toolCalls.length,
+        tools: toolCalls.map((t) => ({
+          name: t.name,
+          argsLen: t.arguments?.length ?? 0,
+        })),
+      });
       yield { type: 'tool_calls', toolCalls };
     }
   }

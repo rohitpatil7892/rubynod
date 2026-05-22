@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { aiLog, getServerLogLevel } from './logger';
 
 /**
  * TS with `"module": "commonjs"` compiles `import(url)` to `require(url)`, which fails
@@ -67,8 +68,14 @@ export async function startInProcessServer(
 
     process.env.RUBYNOD_AI_PORT = String(port);
     process.env.RUBYNOD_AI_HOST = host;
+    const logLevel = getServerLogLevel();
+    if (logLevel !== 'off') {
+      process.env.RUBYNOD_LOG_LEVEL = logLevel;
+    }
 
+    aiLog.info('In-process server starting', { port, host, logLevel });
     await serverModule.startRubynodServer({ port, host });
+    aiLog.info('In-process server listening', { port, host });
     inProcess = true;
     lastStartError = undefined;
     return true;
@@ -77,7 +84,7 @@ export async function startInProcessServer(
     inProcess = false;
     const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
     lastStartError = msg;
-    console.error('[rubynod-ai-ui] in-process server failed:', msg);
+    aiLog.error('In-process server failed', msg);
     return false;
   }
 }

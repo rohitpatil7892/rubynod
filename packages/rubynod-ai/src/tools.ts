@@ -7,9 +7,20 @@ import type { McpHub } from '@rubynod/mcp';
 import { webSearch } from './web-search.js';
 import { appendMemory } from './memories.js';
 import { resolveWritePath } from './write-path.js';
-import { sanitizeFileContents } from './sanitize-code.js';
-import { inspectWorkspaceSetup } from './project-context.js';
+import {
+  normalizeToolFilePath,
+  sanitizeFileContents,
+  validateDestructiveOverwrite,
+  validateWriteContents,
+} from './sanitize-code.js';
+import {
+  hasExplicitFileMention,
+  inspectWorkspaceSetup,
+  isWritePathAllowedForMessage,
+} from './project-context.js';
 import { prepareJsonWrite } from './json-write.js';
+import { ensurePackageJsonDependencies } from './package-deps.js';
+import { toolLog } from './logger.js';
 
 const WRITE_TOOLS = new Set(['write_file', 'search_replace', 'Shell', 'run_terminal']);
 const READ_ONLY_MODES: AgentMode[] = ['plan', 'ask'];
@@ -28,7 +39,7 @@ export function normalizeWriteFileArgs(
     args.code ??
     args.data;
   if (typeof raw !== 'string') return null;
-  return { path: p.trim(), contents: raw };
+  return { path: normalizeToolFilePath(p), contents: raw };
 }
 
 export function getToolDefinitions(
@@ -58,7 +69,7 @@ export function getToolDefinitions(
       function: {
         name: 'write_file',
         description:
-          'Write or create a file with the FULL file contents in `contents`. Before creating a new file, use read_file/glob/inspect_workspace — if the file exists, read it and prefer search_replace unless replacing entirely. Use short paths (server.js, package.json). Never slugify the user message as the filename.',
+          'Write or create a file with the FULL file contents in `contents`. The `contents` argument must be exactly what should be on disk — do not describe different code in chat. Before creating a new file, use read_file/glob/inspect_workspace — if the file exists, read it and prefer search_replace unless replacing entirely. When adding npm imports (mysql, express, etc.), also update package.json dependencies in the same turn. Use short paths (server.js, package.json). Never slugify the user message as the filename.',
         parameters: {
           type: 'object',
           properties: {
@@ -311,6 +322,8 @@ export async function executeTool(
   ctx: {
     mode: AgentMode;
     workspaceRoot: string;
+    userMessage?: string;
+    writeStatsByPath?: Map<string, { chars: number; count: number }>;
     bridge?: IdeBridge;
     indexer?: CodebaseIndexer;
     mcpHub?: McpHub;
@@ -331,6 +344,8 @@ async function executeToolInner(
   ctx: {
     mode: AgentMode;
     workspaceRoot: string;
+    userMessage?: string;
+    writeStatsByPath?: Map<string, { chars: number; count: number }>;
     bridge?: IdeBridge;
     indexer?: CodebaseIndexer;
     mcpHub?: McpHub;
@@ -341,6 +356,12 @@ async function executeToolInner(
   if (READ_ONLY_MODES.includes(ctx.mode) && WRITE_TOOLS.has(name)) {
     return `Error: Tool ${name} is disabled in ${ctx.mode} mode.`;
   }
+
+  toolLog.info(`execute ${name}`, {
+    path: args.path,
+    pattern: args.pattern,
+    command: typeof args.command === 'string' ? String(args.command).slice(0, 80) : undefined,
+  });
 
   const bridge = ctx.bridge;
   const ws = ctx.workspaceRoot;
@@ -366,12 +387,60 @@ async function executeToolInner(
     case 'write_file': {
       const normalized = normalizeWriteFileArgs(args);
       if (!normalized) {
+        const p =
+          typeof args.path === 'string' && args.path.trim()
+            ? normalizeToolFilePath(args.path)
+            : 'the file';
+        const hasPathOnly =
+          typeof args.path === 'string' &&
+          args.path.trim() &&
+          args.contents === undefined &&
+          args.content === undefined;
+        if (hasPathOnly) {
+          return (
+            `Error: write_file for ${p} had path only — Ollama did not send \`contents\`. ` +
+            `Call read_file('${p}'), then search_replace to add code, or write_file with the full file in \`contents\`.`
+          );
+        }
         return 'Error: write_file requires path and non-missing contents (use `contents` with the full file body).';
       }
       let { path: p, contents } = normalized;
+      p = normalizeToolFilePath(p);
+      if (ctx.userMessage && !isWritePathAllowedForMessage(ctx.userMessage, p)) {
+        const target = ctx.userMessage.match(/@([^\s@]+\.[a-z0-9]{1,8})/i)?.[1] ?? 'the mentioned file';
+        return (
+          `Error: User asked to edit @${target}, not package.json. ` +
+          `Use read_file + search_replace on ${target} to add the API route.`
+        );
+      }
       contents = sanitizeFileContents(contents);
+      const invalid = validateWriteContents(contents, p);
+      if (invalid) {
+        return `Error: write_file refused — ${invalid}. Use read_file on the target, then write_file with complete valid source (path without @ prefix).`;
+      }
       if (!contents.trim()) {
         return 'Error: write_file refused empty contents. Call write_file again with the full file implementation in `contents`.';
+      }
+      const absCheck = path.resolve(ws, p);
+      const existedBefore = fs.existsSync(absCheck);
+      const oldContent = existedBefore ? fs.readFileSync(absCheck, 'utf8') : '';
+      const destructive = validateDestructiveOverwrite(contents, p, oldContent);
+      if (destructive) {
+        return `Error: write_file refused — ${destructive}.`;
+      }
+      const stats = ctx.writeStatsByPath?.get(p);
+      if (stats && contents.length < stats.chars * 0.85) {
+        return (
+          `Error: Refusing a smaller second write to ${p} in the same request ` +
+          `(${contents.length} chars vs ${stats.chars} already written). ` +
+          `Call read_file('${p}') and use search_replace to fix errors.`
+        );
+      }
+      if (stats && stats.count >= 2) {
+        return (
+          `Error: Already wrote to ${p} twice this request. ` +
+          `Use read_file + search_replace for further edits.`
+        );
       }
       const resolved = resolveWritePath(p, contents);
       p = resolved.path;
@@ -379,35 +448,65 @@ async function executeToolInner(
         ? ` (renamed from invalid slug path to ${p})`
         : '';
       const abs = path.resolve(ws, p);
-      const existed = fs.existsSync(abs);
-      const old = existed ? fs.readFileSync(abs, 'utf8') : '';
+      const existed = existedBefore;
+      const old = oldContent;
       contents = prepareJsonWrite(p, contents, old);
-      if (bridge) {
-        await bridge.writeFile(p, contents);
-        ctx.onDiff?.(p, old, contents);
-      } else {
-        fs.mkdirSync(path.dirname(abs), { recursive: true });
-        fs.writeFileSync(abs, contents);
-        ctx.indexer?.updateFile(p);
-        ctx.onDiff?.(p, old, contents);
+      const writeToDisk = async (rel: string, body: string): Promise<string | void> => {
+        if (bridge) return bridge.writeFile(rel, body) as Promise<string | void>;
+        const a = path.resolve(ws, rel);
+        fs.mkdirSync(path.dirname(a), { recursive: true });
+        fs.writeFileSync(a, body);
+        ctx.indexer?.updateFile(rel);
+      };
+      const writeToDiskForDeps = async (rel: string, body: string): Promise<void> => {
+        await writeToDisk(rel, body);
+      };
+
+      const writeResult = await writeToDisk(p, contents);
+      ctx.onDiff?.(p, old, contents);
+      ctx.writeStatsByPath?.set(p, {
+        chars: contents.length,
+        count: (ctx.writeStatsByPath.get(p)?.count ?? 0) + 1,
+      });
+
+      let depNote = '';
+      const skipAutoPkg =
+        ctx.userMessage &&
+        hasExplicitFileMention(ctx.userMessage) &&
+        !/\bpackage\.json\b/i.test(ctx.userMessage);
+      if (!/\.json$/i.test(p) && !skipAutoPkg) {
+        const added = ensurePackageJsonDependencies(ws, contents, writeToDiskForDeps);
+        if (added) depNote = `\n${added}`;
       }
+
+      if (bridge && typeof writeResult === 'string' && /proposed|approve|reject/i.test(writeResult)) {
+        return `${writeResult}${pathNote}${depNote}`;
+      }
+
       const lines = contents.split('\n').length;
       const verb = existed ? 'Updated existing file' : 'Created new file';
       const hint = existed
         ? ' (file already existed — prefer read_file + search_replace next time unless replacing entirely)'
         : '';
       const jsonNote = /\.json$/i.test(p) ? ' (JSON pretty-printed on disk)' : '';
-      return `${verb} ${p} (${lines} lines, ${contents.length} chars)${pathNote}${hint}${jsonNote}`;
+      return `${verb} ${p} (${lines} lines, ${contents.length} chars)${pathNote}${hint}${jsonNote}${depNote}`;
     }
     case 'search_replace': {
-      const p = args.path as string;
+      const p = normalizeToolFilePath(String(args.path ?? ''));
       const oldStr = args.old_string as string;
       const newStr = args.new_string as string;
       const replaceAll = args.replace_all as boolean | undefined;
+      const absSr = path.resolve(ws, p);
+      if (!fs.existsSync(absSr)) return `Error: File not found: ${p}`;
+      const originalSr = fs.readFileSync(absSr, 'utf8');
+      let patchedSr = originalSr;
+      if (replaceAll) patchedSr = patchedSr.split(oldStr).join(newStr);
+      else patchedSr = patchedSr.replace(oldStr, newStr);
+      patchedSr = prepareJsonWrite(p, patchedSr, originalSr);
       if (bridge) {
         const result = await bridge.searchReplace(p, oldStr, newStr, replaceAll);
-        ctx.onDiff?.(p, '', result);
-        return `Patched ${p}`;
+        ctx.onDiff?.(p, originalSr, patchedSr);
+        return result;
       }
       const abs = path.resolve(ws, p);
       const original = fs.readFileSync(abs, 'utf8');

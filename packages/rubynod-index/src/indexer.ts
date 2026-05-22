@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ContextPack, IndexProgress, IndexStats, IndexSymbol, SearchResult } from './types.js';
-import { shouldIndex } from './ignore.js';
 import { walkWorkspace } from './chunker.js';
 import { chunkFileSmart } from './symbol-chunker.js';
 import { IndexStore } from './store.js';
 import { buildContextPack } from './context-pack.js';
 
 const DEFAULT_BUILD_CONCURRENCY = Number(process.env.RUBYNOD_INDEX_CONCURRENCY ?? 8);
+const MAX_FILE_BYTES = 512_000;
 
 export class CodebaseIndexer {
   private store: IndexStore;
@@ -16,6 +16,12 @@ export class CodebaseIndexer {
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private buildConcurrency = DEFAULT_BUILD_CONCURRENCY;
   private searchCandidateLimit = Number(process.env.RUBYNOD_SEARCH_CANDIDATES ?? 400);
+  private lastBuildDiagnostics = {
+    filesDiscovered: 0,
+    filesSkippedLarge: 0,
+    filesSkippedEmpty: 0,
+    filesSkippedError: 0,
+  };
 
   constructor(workspaceRoot: string) {
     this.workspaceRoot = path.resolve(workspaceRoot);
@@ -23,7 +29,10 @@ export class CodebaseIndexer {
   }
 
   getStatus(): IndexStats {
-    return this.store.getStats(this.indexing);
+    return {
+      ...this.store.getStats(this.indexing),
+      ...this.lastBuildDiagnostics,
+    };
   }
 
   isIndexing(): boolean {
@@ -38,10 +47,15 @@ export class CodebaseIndexer {
   async buildIndex(onProgress?: (p: IndexProgress) => void): Promise<IndexStats> {
     if (this.indexing) return this.getStatus();
     this.indexing = true;
+    this.lastBuildDiagnostics = {
+      filesDiscovered: 0,
+      filesSkippedLarge: 0,
+      filesSkippedEmpty: 0,
+      filesSkippedError: 0,
+    };
 
-    const files = walkWorkspace(this.workspaceRoot, (rel) =>
-      shouldIndex(rel, this.workspaceRoot)
-    );
+    const files = walkWorkspace(this.workspaceRoot);
+    this.lastBuildDiagnostics.filesDiscovered = files.length;
 
     onProgress?.({
       phase: 'scanning',
@@ -50,58 +64,86 @@ export class CodebaseIndexer {
       message: `Found ${files.length} files to index`,
     });
 
+    this.store.beginBatch();
     this.store.clear();
     let done = 0;
     const concurrency = Math.max(1, this.buildConcurrency);
 
-    for (let i = 0; i < files.length; i += concurrency) {
-      const batch = files.slice(i, i + concurrency);
-      await Promise.all(batch.map((abs) => this.indexOneFile(abs, onProgress)));
-      done += batch.length;
-      onProgress?.({
-        phase: 'indexing',
-        filesTotal: files.length,
-        filesDone: done,
-        message: `Indexed ${done}/${files.length} files`,
-      });
+    try {
+      for (let i = 0; i < files.length; i += concurrency) {
+        const batch = files.slice(i, i + concurrency);
+        const prepared = await Promise.all(batch.map((abs) => this.prepareFile(abs)));
+        for (const item of prepared) {
+          if (!item) continue;
+          if (item.kind === 'skip-large') this.lastBuildDiagnostics.filesSkippedLarge++;
+          else if (item.kind === 'skip-empty') this.lastBuildDiagnostics.filesSkippedEmpty++;
+          else if (item.kind === 'error') this.lastBuildDiagnostics.filesSkippedError++;
+          else if (item.kind === 'indexed') {
+            this.store.removePath(item.rel);
+            this.store.upsertChunks(item.chunks);
+            this.store.upsertFile(item.rel, item.mtimeMs, item.size);
+          }
+        }
+        done += batch.length;
+        onProgress?.({
+          phase: 'indexing',
+          filesTotal: files.length,
+          filesDone: done,
+          message: `Indexed ${done}/${files.length} files`,
+        });
+      }
+
+      const now = new Date().toISOString();
+      this.store.setMeta('lastIndexedAt', now);
+    } finally {
+      this.store.endBatch();
+      this.indexing = false;
     }
 
-    const now = new Date().toISOString();
-    this.store.setMeta('lastIndexedAt', now);
-    this.indexing = false;
-
+    const stats = this.getStatus();
     onProgress?.({
       phase: 'done',
       filesTotal: files.length,
       filesDone: files.length,
-      message: `Index ready — ${this.getStatus().chunkCount} chunks`,
+      message: `Index ready — ${stats.chunkCount} chunks from ${stats.fileCount} files`,
     });
 
-    return this.getStatus();
+    return stats;
   }
 
-  private async indexOneFile(
-    abs: string,
-    _onProgress?: (p: IndexProgress) => void
-  ): Promise<void> {
+  /** Read + chunk in parallel; DB writes happen serially in buildIndex. */
+  private async prepareFile(
+    abs: string
+  ): Promise<
+    | { kind: 'indexed'; rel: string; chunks: ReturnType<typeof chunkFileSmart>; mtimeMs: number; size: number }
+    | { kind: 'skip-large' | 'skip-empty' | 'error' }
+    | null
+  > {
     const rel = path.relative(this.workspaceRoot, abs).replace(/\\/g, '/');
     try {
       const stat = fs.statSync(abs);
-      if (stat.size > 512_000) return;
+      if (stat.size > MAX_FILE_BYTES) return { kind: 'skip-large' };
 
       const prevMtime = this.store.getFileMtime(rel);
-      if (prevMtime !== null && prevMtime === stat.mtimeMs) return;
+      if (prevMtime !== null && prevMtime === stat.mtimeMs) {
+        return null;
+      }
 
       const content = fs.readFileSync(abs, 'utf8');
       const chunks = chunkFileSmart(rel, content);
-      if (chunks.length) {
-        this.store.removePath(rel);
-        this.store.upsertChunks(chunks);
-        this.store.upsertFile(rel, stat.mtimeMs, stat.size);
-      }
+      if (!chunks.length) return { kind: 'skip-empty' };
+      return { kind: 'indexed', rel, chunks, mtimeMs: stat.mtimeMs, size: stat.size };
     } catch {
-      // skip unreadable
+      return { kind: 'error' };
     }
+  }
+
+  private async indexOneFile(abs: string): Promise<void> {
+    const item = await this.prepareFile(abs);
+    if (!item || item.kind !== 'indexed') return;
+    this.store.removePath(item.rel);
+    this.store.upsertChunks(item.chunks);
+    this.store.upsertFile(item.rel, item.mtimeMs, item.size);
   }
 
   updateFile(relPath: string, symbols?: IndexSymbol[]): void {

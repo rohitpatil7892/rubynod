@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { getWorkspaceRoot } from './settings';
+import { getWorkspaceRoot, requiresFileApproval } from './settings';
 import { buildRipgrepShell, isWindows } from './platform';
 import { writeWorkspaceFile } from './file-write';
 import { prepareJsonWrite } from './json-write';
@@ -52,7 +52,14 @@ export function createIdeBridge(): Record<string, (...args: any[]) => Promise<un
       }
     },
     writeFile: async (filePath: string, content: string) => {
+      if (requiresFileApproval()) {
+        return (
+          `Proposed write to ${filePath} (${content.length} chars). ` +
+          `Approve or Reject in the Rubynod chat — the file is not saved until you Accept.`
+        );
+      }
       await writeWorkspaceFile(filePath, content);
+      return `Wrote ${filePath} (${content.length} chars)`;
     },
     searchReplace: async (filePath: string, oldStr: string, newStr: string, replaceAll?: boolean) => {
       const abs = path.isAbsolute(filePath) ? filePath : path.join(ws(), filePath);
@@ -65,6 +72,12 @@ export function createIdeBridge(): Record<string, (...args: any[]) => Promise<un
       if (replaceAll) content = content.split(oldStr).join(newStr);
       else content = content.replace(oldStr, newStr);
       content = prepareJsonWrite(filePath, content, original);
+      if (requiresFileApproval()) {
+        return (
+          `Proposed patch for ${filePath}. ` +
+          `Approve or Reject in the Rubynod chat — not saved until you Accept.`
+        );
+      }
       await writeWorkspaceFile(filePath, content);
       return content;
     },

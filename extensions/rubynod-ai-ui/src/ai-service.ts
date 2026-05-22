@@ -1,7 +1,8 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execSync, spawn, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { aiLog, getServerLogLevel, showRubynodOutput } from './logger';
 import { getServiceUrl } from './settings';
 import {
   getBundledServerEntry,
@@ -17,11 +18,19 @@ const DEFAULT_PORT = 3847;
 
 let serverProcess: ChildProcess | undefined;
 let startingPromise: Promise<boolean> | undefined;
-let outputChannel: vscode.OutputChannel | undefined;
 
 function log(line: string): void {
-  outputChannel ??= vscode.window.createOutputChannel('Rubynod AI Service');
-  outputChannel.appendLine(line);
+  aiLog.info(line);
+}
+
+function serverChildEnv(port: string): NodeJS.ProcessEnv {
+  const level = getServerLogLevel();
+  return {
+    ...process.env,
+    RUBYNOD_AI_PORT: port,
+    RUBYNOD_AI_HOST: '127.0.0.1',
+    ...(level !== 'off' ? { RUBYNOD_LOG_LEVEL: level } : {}),
+  };
 }
 
 export { getBundledServerEntry };
@@ -140,11 +149,7 @@ async function spawnBundledServer(extensionPath: string): Promise<boolean> {
 
   serverProcess = spawn(node, [entry], {
     cwd: serverDir,
-    env: {
-      ...process.env,
-      RUBYNOD_AI_PORT: port,
-      RUBYNOD_AI_HOST: '127.0.0.1',
-    },
+    env: serverChildEnv(port),
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
     // Survive extension-host reloads (Developer: Reload Window) so port 3847 stays up.
@@ -186,7 +191,7 @@ async function startFromRepoFallback(): Promise<boolean> {
 
   serverProcess = spawn(node, [entry], {
     cwd: root,
-    env: { ...process.env, RUBYNOD_AI_PORT: port, RUBYNOD_AI_HOST: '127.0.0.1' },
+    env: serverChildEnv(port),
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
     detached: process.platform !== 'win32',
@@ -203,6 +208,33 @@ async function startFromRepoFallback(): Promise<boolean> {
   serverProcess.unref();
 
   return waitForHealthy();
+}
+
+/** Stop any process listening on the AI port (e.g. old bundled server after extension update). */
+export function killStaleProcessOnAiPort(): void {
+  const port = parseServicePort();
+  try {
+    if (process.platform === 'win32') {
+      execSync(`FOR /F "tokens=5" %a in ('netstat -ano ^| findstr :${port}') do taskkill /F /PID %a`, {
+        stdio: 'ignore',
+      });
+    } else {
+      const out = execSync(`lsof -ti:${port} 2>/dev/null || true`, { encoding: 'utf8' }).trim();
+      if (out) {
+        for (const pid of out.split(/\s+/).filter(Boolean)) {
+          try {
+            execSync(`kill -9 ${pid} 2>/dev/null || true`, { stdio: 'ignore' });
+          } catch {
+            /* ignore */
+          }
+        }
+        log(`Stopped stale process(es) on port ${port}: ${out}`);
+      }
+    }
+  } catch {
+    /* port free */
+  }
+  serverProcess = undefined;
 }
 
 /**
@@ -294,9 +326,9 @@ export async function startAiService(extensionPath: string): Promise<void> {
     return;
   }
 
-  outputChannel?.show(true);
+  showRubynodOutput(false);
   vscode.window.showErrorMessage(
-    'Rubynod could not start the AI service. Open Output → Rubynod AI Service for details.'
+    'Rubynod could not start the AI service. Open Output → Rubynod for details (Cmd+Shift+P → Rubynod: Show Logs).'
   );
 }
 
@@ -315,6 +347,13 @@ export async function stopAiService(): Promise<void> {
 export function formatAiConnectionError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   const url = getServiceUrl();
+  if (/does not support tools/i.test(msg)) {
+    return (
+      msg +
+      '\n\nPick a model that supports Agent tools (e.g. qwen2.5-coder:7b or llama3.2). ' +
+      'Models ending in -base or used for embeddings cannot run the agent.'
+    );
+  }
   if (/fetch failed|ECONNREFUSED|ENOTFOUND|Failed to fetch/i.test(msg)) {
     return (
       `Cannot reach Rubynod AI at ${url}.\n\n` +

@@ -1,17 +1,43 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { CodebaseIndexer } from '@rubynod/index';
 import { McpHub } from '@rubynod/mcp';
 import { buildSystemPrompt } from './rules.js';
-import { inspectWorkspaceSetup, shouldAttachWorkspaceSetup } from './project-context.js';
+import {
+  buildFocusedFileDirective,
+  hasExplicitFileMention,
+  inspectWorkspaceSetup,
+  shouldAttachWorkspaceSetup,
+  shouldRequireAgentTools,
+} from './project-context.js';
+import { isFailedToolOnlyResponse } from './sanitize-code.js';
 import { getCachedContextPack, setCachedContextPack } from './context-cache.js';
 import { queueIndexBuild } from './index-queue.js';
 import { ModelRouter, resolveModelConfig } from './model-router.js';
+import {
+  formatOllamaNoToolsModelError,
+  ollamaHostFromBaseUrl,
+  ollamaModelSupportsTools,
+} from './ollama.js';
 import { getToolDefinitions, executeTool } from './tools.js';
+import {
+  extractRecoveryToolCalls,
+  extractToolCallsFromText,
+  mightBeLeakedToolSyntax,
+} from './text-tool-calls.js';
+import {
+  buildSkippedWriteFileHint,
+  dedupePendingToolCalls,
+  preparePendingToolCall,
+  type PendingToolCall,
+} from './prepare-pending-tool.js';
 import {
   thinkingLabel,
   describeToolStart,
   describeToolEnd,
 } from './agent-activity.js';
+import { agentLog } from './logger.js';
 import type {
   AgentEvent,
   AgentMode,
@@ -118,6 +144,24 @@ export async function* runAgent(
   });
   const router = new ModelRouter(config);
 
+  let ollamaSupportsTools = true;
+  if (config.provider === 'ollama' && config.model) {
+    const host = ollamaHostFromBaseUrl(config.baseUrl);
+    ollamaSupportsTools = await ollamaModelSupportsTools(config.model, host);
+    if (!ollamaSupportsTools) {
+      agentLog.warn('Ollama model does not support tools', { model: config.model, host });
+    }
+  }
+
+  agentLog.info('runAgent start', {
+    mode,
+    model: config.model,
+    provider: config.provider,
+    workspaceRoot: req.workspaceRoot,
+    messagePreview: req.message.slice(0, 100),
+    contextAttachments: contextAttachments.length,
+  });
+
   const userContent = formatContext(contextAttachments) + '\n\n' + req.message;
   thread.messages.push({ role: 'user', content: userContent });
 
@@ -129,6 +173,10 @@ export async function* runAgent(
     );
 
   let system = buildSystemPrompt(req.workspaceRoot, mode);
+  const focusedFileHint = buildFocusedFileDirective(req.message);
+  if (focusedFileHint) {
+    system += `\n\n${focusedFileHint}`;
+  }
   if (isGreeting) {
     system +=
       '\n\nThe user sent a brief greeting only. Reply in one or two friendly sentences. Do not call read_file or any other tools.';
@@ -139,19 +187,37 @@ export async function* runAgent(
   ];
 
   const maxTurns = cs?.maxAgentTurns ?? 25;
+  /** Per user message: track writes to block incremental tiny overwrites. */
+  const writeStatsByPath = new Map<string, { chars: number; count: number }>();
+  let toolsExecutedThisRun = 0;
+
   for (let turn = 0; turn < maxTurns; turn++) {
     if (thread.cancelled) {
+      agentLog.warn('Agent cancelled', { threadId });
       yield { type: 'error', data: { message: 'Cancelled' } };
       break;
     }
+
+    agentLog.debug('Agent turn', { turn, threadId });
 
     const tools = isGreeting
       ? []
       : getToolDefinitions(thread.mode, mcpHub, {
           webSearch: cs?.webSearchEnabled || process.env.RUBYNOD_WEB_SEARCH === '1',
         });
+
+    if (config.provider === 'ollama' && !ollamaSupportsTools && tools.length > 0) {
+      yield {
+        type: 'error',
+        data: { message: formatOllamaNoToolsModelError(config.model) },
+      };
+      break;
+    }
+
     let assistantText = '';
-    const pendingToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
+    let cleanedDisplayLen = 0;
+    let bufferingInlineToolJson = false;
+    const pendingToolCalls: PendingToolCall[] = [];
     let streamedAnyText = false;
 
     const thinkId = `think-${turn}`;
@@ -168,17 +234,60 @@ export async function* runAgent(
     };
 
     try {
-      for await (const chunk of router.streamChat(messages, tools)) {
+      const toolChoice =
+        !isGreeting && tools.length > 0
+          ? shouldRequireAgentTools(req.message) && ollamaSupportsTools
+            ? ('required' as const)
+            : ('auto' as const)
+          : undefined;
+
+      for await (const chunk of router.streamChat(messages, tools, { toolChoice })) {
         if (thread.cancelled) break;
         if (chunk.type === 'text' && chunk.text) {
-          streamedAnyText = true;
           assistantText += chunk.text;
-          const ev: AgentEvent = { type: 'text', data: { text: chunk.text, threadId } };
-          onEvent?.(ev);
-          yield ev;
+          if (mightBeLeakedToolSyntax(assistantText)) {
+            bufferingInlineToolJson = true;
+          }
+          const extracted = extractToolCallsFromText(
+            assistantText,
+            req.message,
+            req.workspaceRoot
+          );
+          if (extracted.toolCalls.length) {
+            bufferingInlineToolJson = false;
+            for (const tc of extracted.toolCalls) {
+              const prep = preparePendingToolCall(tc, {
+                userMessage: req.message,
+                assistantText,
+              });
+              if (!prep) continue;
+              const dup = pendingToolCalls.some(
+                (p) => p.name === prep.name && p.arguments === prep.arguments
+              );
+              if (!dup) pendingToolCalls.push(prep);
+            }
+          }
+          const visible = extracted.cleanedText.slice(cleanedDisplayLen);
+          cleanedDisplayLen = extracted.cleanedText.length;
+          const hideInlineJson =
+            bufferingInlineToolJson ||
+            mightBeLeakedToolSyntax(assistantText) ||
+            (extracted.toolCalls.length > 0 && !visible.trim());
+          if (visible && !hideInlineJson) {
+            streamedAnyText = true;
+            const ev: AgentEvent = { type: 'text', data: { text: visible, threadId } };
+            onEvent?.(ev);
+            yield ev;
+          }
         }
         if (chunk.type === 'tool_calls' && chunk.toolCalls) {
-          pendingToolCalls.push(...chunk.toolCalls);
+          for (const tc of chunk.toolCalls) {
+            const prep = preparePendingToolCall(tc, {
+              userMessage: req.message,
+              assistantText,
+            });
+            if (prep) pendingToolCalls.push(prep);
+          }
         }
       }
     } catch (err) {
@@ -192,7 +301,66 @@ export async function* runAgent(
       data: { id: thinkId, step: thinkMeta.step, label: thinkMeta.label, status: 'done', threadId },
     };
 
+    const rawAssistantForRecovery = assistantText;
+    const finalExtract = extractToolCallsFromText(
+      assistantText,
+      req.message,
+      req.workspaceRoot
+    );
+    if (finalExtract.toolCalls.length) {
+      for (const tc of finalExtract.toolCalls) {
+        const prep = preparePendingToolCall(tc, {
+          userMessage: req.message,
+          assistantText,
+        });
+        if (!prep) continue;
+        const dup = pendingToolCalls.some(
+          (p) => p.name === prep.name && p.arguments === prep.arguments
+        );
+        if (!dup) pendingToolCalls.push(prep);
+      }
+    }
+    assistantText = finalExtract.cleanedText;
+
     if (pendingToolCalls.length === 0) {
+      for (const tc of extractRecoveryToolCalls(
+        rawAssistantForRecovery,
+        req.message,
+        req.workspaceRoot
+      )) {
+        const prep = preparePendingToolCall(tc, {
+          userMessage: req.message,
+          assistantText: rawAssistantForRecovery,
+        });
+        if (!prep) continue;
+        const dup = pendingToolCalls.some(
+          (p) => p.name === prep.name && p.arguments === prep.arguments
+        );
+        if (!dup) pendingToolCalls.push(prep);
+      }
+      if (pendingToolCalls.length) {
+        agentLog.info('Recovered tool calls from partial model JSON', {
+          tools: pendingToolCalls.map((t) => t.name),
+        });
+      }
+    }
+
+    if (pendingToolCalls.length === 0) {
+      const toolJsonFailed =
+        !isGreeting && mode === 'agent' && isFailedToolOnlyResponse(assistantText);
+      if (toolJsonFailed) {
+        const hint =
+          'The model returned incomplete tool JSON instead of editing the file. ' +
+          'Ensure Ollama is running, pull `qwen2.5-coder:7b`, reload VS Code, kill port 3847, and retry. ' +
+          'Or run **Rubynod: Start AI Service** and check Output → Rubynod logs.';
+        agentLog.warn('No tools ran; leaked tool JSON in model output', {
+          assistantPreview: rawAssistantForRecovery.slice(0, 200),
+          model: config.model,
+        });
+        thread.messages.push({ role: 'assistant', content: hint });
+        yield { type: 'error', data: { message: hint, threadId } };
+        break;
+      }
       thread.messages.push({ role: 'assistant', content: assistantText });
       if (mode === 'plan' && assistantText) {
         yield { type: 'plan', data: { content: assistantText, threadId } };
@@ -216,7 +384,58 @@ export async function* runAgent(
       content: assistantText || `[tool calls]`,
     });
 
+    const toolCtx = { userMessage: req.message, assistantText };
+    const validatedCalls: PendingToolCall[] = [];
+    const skippedWriteHints: string[] = [];
+
     for (const tc of pendingToolCalls) {
+      const prep = preparePendingToolCall(tc, toolCtx);
+      if (prep) {
+        validatedCalls.push(prep);
+        continue;
+      }
+      if (tc.name === 'write_file') {
+        const hint = buildSkippedWriteFileHint(tc, req.message);
+        if (!skippedWriteHints.includes(hint)) skippedWriteHints.push(hint);
+      }
+    }
+
+    agentLog.info('Executing tools', {
+      count: validatedCalls.length,
+      skipped: skippedWriteHints.length,
+      names: validatedCalls.map((t) => t.name),
+    });
+
+    for (const hint of skippedWriteHints) {
+      agentLog.warn('Skipped incomplete write_file', hint.slice(0, 200));
+      const synthId = `skip-${randomUUID()}`;
+      thread.messages.push({
+        role: 'tool',
+        content: hint,
+        toolCallId: synthId,
+        name: 'write_file',
+      });
+      messages.push({
+        role: 'tool',
+        content: hint,
+        toolCallId: synthId,
+        name: 'write_file',
+      });
+    }
+
+    if (validatedCalls.length === 0 && skippedWriteHints.length > 0) {
+      continue;
+    }
+
+    const dedupedCalls = dedupePendingToolCalls(validatedCalls);
+    if (dedupedCalls.length < validatedCalls.length) {
+      agentLog.warn('Deduped duplicate tool calls', {
+        before: validatedCalls.length,
+        after: dedupedCalls.length,
+      });
+    }
+
+    for (const tc of dedupedCalls) {
       if (thread.cancelled) break;
       let parsed: Record<string, unknown> = {};
       try {
@@ -244,6 +463,8 @@ export async function* runAgent(
         result = await executeTool(tc.name, parsed, {
           mode: thread.mode,
           workspaceRoot: req.workspaceRoot,
+          userMessage: req.message,
+          writeStatsByPath,
           bridge,
           indexer,
           mcpHub,
@@ -263,6 +484,22 @@ export async function* runAgent(
       }
 
       const ok = !result.startsWith('Error:') && !result.startsWith('Rejected');
+
+      let writtenPath: string | undefined;
+      let writtenContents: string | undefined;
+      if (ok && tc.name === 'write_file' && typeof parsed.path === 'string') {
+        const rel = String(parsed.path).trim();
+        const abs = path.join(req.workspaceRoot, rel);
+        if (fs.existsSync(abs)) {
+          writtenPath = rel;
+          writtenContents = fs.readFileSync(abs, 'utf8');
+          writeStatsByPath.set(rel, {
+            chars: writtenContents.length,
+            count: (writeStatsByPath.get(rel)?.count ?? 0) + 1,
+          });
+        }
+      }
+
       yield {
         type: 'activity',
         data: {
@@ -274,7 +511,10 @@ export async function* runAgent(
           threadId,
         },
       };
-      yield { type: 'tool_end', data: { id: tc.id, name: tc.name, result, threadId } };
+      yield {
+        type: 'tool_end',
+        data: { id: tc.id, name: tc.name, result, threadId, writtenPath, writtenContents },
+      };
 
       const toolMsg: ChatMessage = {
         role: 'tool',
@@ -284,6 +524,7 @@ export async function* runAgent(
       };
       thread.messages.push(toolMsg);
       messages.push(toolMsg);
+      toolsExecutedThisRun++;
     }
   }
 

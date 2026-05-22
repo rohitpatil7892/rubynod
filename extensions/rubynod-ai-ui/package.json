@@ -2,7 +2,7 @@
   "name": "rubynod-ai-ui",
   "displayName": "Rubynod AI",
   "description": "Open-source AI coding assistant: agent chat, Ollama & cloud models, file edits, diff review, @ context, indexing, inline edit & tab complete.",
-  "version": "0.1.18",
+  "version": "0.1.34",
   "publisher": "RohitPatil",
   "license": "MIT",
   "icon": "media/icon-128.png",
@@ -75,6 +75,10 @@
         "title": "Rubynod: Stop AI Service"
       },
       {
+        "command": "rubynod.showLogs",
+        "title": "Rubynod: Show Logs"
+      },
+      {
         "command": "rubynod.clearChat",
         "title": "Rubynod: Clear Chat History"
       },
@@ -92,7 +96,28 @@
       },
       {
         "command": "rubynod.openSettings",
-        "title": "Rubynod: Open Settings"
+        "title": "Rubynod: Open Settings",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "rubynod.openIndexingSettings",
+        "title": "Rubynod: Open Indexing Settings",
+        "icon": "$(database)"
+      },
+      {
+        "command": "rubynod.openRulesConfig",
+        "title": "Rubynod: Open Rules",
+        "icon": "$(file-text)"
+      },
+      {
+        "command": "rubynod.openSkillsConfig",
+        "title": "Rubynod: Open Skills",
+        "icon": "$(book)"
+      },
+      {
+        "command": "rubynod.openMcpConfig",
+        "title": "Rubynod: Open MCP Config",
+        "icon": "$(plug)"
       },
       {
         "command": "rubynod.inlineEdit",
@@ -148,6 +173,38 @@
       }
     ],
     "menus": {
+      "view/title": [
+        {
+          "command": "rubynod.openSettings",
+          "when": "view == rubynod.chatView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "rubynod.openIndexingSettings",
+          "when": "view == rubynod.chatView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "rubynod.openRulesConfig",
+          "when": "view == rubynod.chatView",
+          "group": "navigation@3"
+        },
+        {
+          "command": "rubynod.openSkillsConfig",
+          "when": "view == rubynod.chatView",
+          "group": "navigation@4"
+        },
+        {
+          "command": "rubynod.openMcpConfig",
+          "when": "view == rubynod.chatView",
+          "group": "navigation@5"
+        },
+        {
+          "command": "rubynod.newChat",
+          "when": "view == rubynod.chatView",
+          "group": "navigation@99"
+        }
+      ],
       "explorer/context": [
         {
           "command": "rubynod.addToChat",
@@ -191,358 +248,434 @@
         "mac": "cmd+shift+i"
       }
     ],
-    "configuration": {
-      "title": "Rubynod",
-      "properties": {
-        "rubynod.ai.serviceUrl": {
-          "type": "string",
-          "default": "http://127.0.0.1:3847",
-          "description": "URL of the Rubynod AI agent service.",
-          "order": 1
-        },
-        "rubynod.ai.lazyStart": {
-          "type": "boolean",
-          "default": false,
-          "markdownDescription": "When **true**, start the AI agent on first chat/index use only. When **false** (default), start automatically in the background when VS Code opens.",
-          "order": 2
-        },
-        "rubynod.ai.inProcess": {
-          "type": "boolean",
-          "default": false,
-          "markdownDescription": "Run the AI agent inside VS Code (experimental). **Default off** — uses a child Node process (auto-detected on PATH), which is more reliable. Enable only if you do not want a separate Node process.",
-          "order": 3
-        },
-        "rubynod.ai.nodePath": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Path to **Node.js 20+** for child-process fallback only (`rubynod.ai.inProcess` off). Leave empty to auto-detect.",
-          "order": 4
-        },
-        "rubynod.ai.repoPath": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "*(Optional, dev fallback)* Path to a [Rubynod](https://github.com/rohitpatil7892/rubynod) git clone if the bundled server is missing. Normal installs start the agent automatically from the extension.",
-          "order": 5
-        },
-        "rubynod.models.provider": {
-          "type": "string",
-          "enum": [
-            "openai",
-            "anthropic",
-            "ollama",
-            "openrouter"
-          ],
-          "default": "ollama",
-          "description": "LLM provider (default: local Ollama).",
-          "order": 10
-        },
-        "rubynod.models.chatModel": {
-          "type": "string",
-          "default": "llama3.2",
-          "description": "Model for Chat and Agent.",
-          "order": 11
-        },
-        "rubynod.models.tabModel": {
-          "type": "string",
-          "default": "",
-          "description": "Model for Tab autocomplete. Empty = same as chat model.",
-          "order": 12
-        },
-        "rubynod.models.inlineModel": {
-          "type": "string",
-          "default": "",
-          "description": "Model for Cmd+K inline edit. Empty = same as chat model.",
-          "order": 13
-        },
-        "rubynod.models.baseUrl": {
-          "type": "string",
-          "default": "http://127.0.0.1:11434/v1",
-          "description": "API base URL (Ollama OpenAI-compatible endpoint by default).",
-          "order": 14
-        },
-        "rubynod.ollama.autoConnect": {
-          "type": "boolean",
-          "default": true,
-          "description": "On startup, detect Ollama and select an installed local model automatically.",
-          "order": 17
-        },
-        "rubynod.ollama.host": {
-          "type": "string",
-          "default": "http://127.0.0.1:11434",
-          "description": "Ollama server URL (without /v1).",
-          "order": 18
-        },
-        "rubynod.models.apiKey": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "API key for the provider. Prefer env vars (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) on shared machines. Rubynod stores keys in local settings.",
-          "order": 15
-        },
-        "rubynod.models.temperature": {
-          "type": "number",
-          "default": 0.2,
-          "minimum": 0,
-          "maximum": 2,
-          "description": "Sampling temperature for chat/agent.",
-          "order": 16
-        },
-        "rubynod.models.maxTokens": {
-          "type": "number",
-          "default": 8192,
-          "minimum": 256,
-          "maximum": 128000,
-          "description": "Max tokens per model response.",
-          "order": 17
-        },
-        "rubynod.chat.defaultMode": {
-          "type": "string",
-          "enum": [
-            "agent",
-            "plan",
-            "ask",
-            "debug"
-          ],
-          "default": "agent",
-          "enumDescriptions": [
-            "Full agent: read/write files and terminal.",
-            "Plan only: explore and write a plan, no edits.",
-            "Ask only: Q&A without tools.",
-            "Debug: focus on logs and reproduction."
-          ],
-          "description": "Default mode when opening Chat.",
-          "order": 20
-        },
-        "rubynod.chat.includeActiveFile": {
-          "type": "boolean",
-          "default": true,
-          "description": "Attach the active editor file (and selection) to every message.",
-          "order": 21
-        },
-        "rubynod.chat.includeOpenFiles": {
-          "type": "boolean",
-          "default": false,
-          "description": "Also attach paths of all open editor tabs (lightweight list).",
-          "order": 22
-        },
-        "rubynod.chat.maxFileContextChars": {
-          "type": "number",
-          "default": 48000,
-          "description": "Max characters per attached file in chat context.",
-          "order": 23
-        },
-        "rubynod.chat.maxContextAttachments": {
-          "type": "number",
-          "default": 20,
-          "description": "Max @-attachments per message.",
-          "order": 24
-        },
-        "rubynod.tab.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable Tab ghost-text autocomplete.",
-          "order": 30
-        },
-        "rubynod.tab.debounceMs": {
-          "type": "number",
-          "default": 600,
-          "minimum": 100,
-          "maximum": 3000,
-          "description": "Delay before requesting a Tab completion.",
-          "order": 31
-        },
-        "rubynod.tab.model": {
-          "type": "string",
-          "default": "",
-          "description": "Override model for Tab only. Empty = rubynod.models.tabModel.",
-          "order": 32
-        },
-        "rubynod.inline.model": {
-          "type": "string",
-          "default": "",
-          "description": "Override model for Cmd+K inline edit.",
-          "order": 35
-        },
-        "rubynod.agent.autoApproveTerminal": {
-          "type": "boolean",
-          "default": false,
-          "description": "Run terminal commands without confirmation.",
-          "order": 40
-        },
-        "rubynod.agent.autoApproveFileWrites": {
-          "type": "boolean",
-          "default": false,
-          "description": "Apply agent file writes without showing diff first.",
-          "order": 41
-        },
-        "rubynod.agent.yoloMode": {
-          "type": "boolean",
-          "default": false,
-          "markdownDescription": "**YOLO mode**: auto-approve terminal + file writes. Use only in trusted repos.",
-          "order": 42
-        },
-        "rubynod.agent.maxTurns": {
-          "type": "number",
-          "default": 25,
-          "minimum": 1,
-          "maximum": 100,
-          "description": "Max tool-call loops per agent request.",
-          "order": 43
-        },
-        "rubynod.index.autoIndexOnOpen": {
-          "type": "boolean",
-          "default": true,
-          "description": "Build codebase index when workspace opens (@codebase).",
-          "order": 50
-        },
-        "rubynod.index.autoIndexOnSave": {
-          "type": "boolean",
-          "default": true,
-          "description": "Update index when files are saved.",
-          "order": 51
-        },
-        "rubynod.index.autoInjectContext": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "Automatically attach relevant indexed code to every agent message (semantic search over your repo).",
-          "order": 52
-        },
-        "rubynod.index.maxAutoContextChunks": {
-          "type": "number",
-          "default": 8,
-          "description": "Max code chunks auto-injected per message.",
-          "order": 53
-        },
-        "rubynod.index.maxAutoContextChars": {
-          "type": "number",
-          "default": 24000,
-          "description": "Max characters of auto-injected index context.",
-          "order": 54
-        },
-        "rubynod.performance.indexSaveDebounceMs": {
-          "type": "number",
-          "default": 800,
-          "minimum": 200,
-          "maximum": 5000,
-          "description": "Debounce incremental index updates on save (ms).",
-          "order": 55
-        },
-        "rubynod.performance.indexBuildConcurrency": {
-          "type": "number",
-          "default": 8,
-          "minimum": 1,
-          "maximum": 32,
-          "description": "Parallel files during full index build.",
-          "order": 56
-        },
-        "rubynod.performance.searchCandidateLimit": {
-          "type": "number",
-          "default": 400,
-          "minimum": 50,
-          "maximum": 2000,
-          "description": "Max chunks considered per hybrid search query.",
-          "order": 57
-        },
-        "rubynod.performance.contextCacheTtlSec": {
-          "type": "number",
-          "default": 45,
-          "minimum": 0,
-          "maximum": 600,
-          "description": "Cache @codebase context packs per query (0 = off).",
-          "order": 58
-        },
-        "rubynod.performance.statusPollIntervalMs": {
-          "type": "number",
-          "default": 30000,
-          "minimum": 5000,
-          "maximum": 120000,
-          "description": "Index status bar refresh when idle (ms).",
-          "order": 59
-        },
-        "rubynod.performance.folderContextMaxFiles": {
-          "type": "number",
-          "default": 30,
-          "minimum": 5,
-          "maximum": 100,
-          "description": "Max files included when attaching a folder.",
-          "order": 60
-        },
-        "rubynod.tools.webSearch": {
-          "type": "boolean",
-          "default": false,
-          "markdownDescription": "Enable **web_search** agent tool (DuckDuckGo). Requires network.",
-          "order": 65
-        },
-        "rubynod.update.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Check GitHub for new Rubynod releases and show an update notification (like VS Code).",
-          "order": 66
-        },
-        "rubynod.update.githubRepo": {
-          "type": "string",
-          "default": "rohitpatil7892/rubynod",
-          "markdownDescription": "GitHub repo for releases (`owner/name`). Change to your fork after publishing.",
-          "order": 67
-        },
-        "rubynod.update.checkIntervalHours": {
-          "type": "number",
-          "default": 12,
-          "minimum": 1,
-          "maximum": 168,
-          "description": "How often to check for updates (hours).",
-          "order": 68
-        },
-        "rubynod.privacy.privacyMode": {
-          "type": "boolean",
-          "default": false,
-          "markdownDescription": "**Privacy mode**: avoid sending code to cloud embedders; prefer local index only.",
-          "order": 60
-        },
-        "rubynod.privacy.localIndexOnly": {
-          "type": "boolean",
-          "default": true,
-          "description": "Use local embeddings for @codebase (no cloud embedding API).",
-          "order": 61
-        },
-        "rubynod.privacy.telemetry": {
-          "type": "boolean",
-          "default": false,
-          "description": "Send anonymous usage telemetry (opt-in).",
-          "order": 62
-        },
-        "rubynod.mcp.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable MCP tool servers from ~/.rubynod/mcp.json.",
-          "order": 70
-        },
-        "rubynod.ai.provider": {
-          "type": "string",
-          "deprecationMessage": "Use rubynod.models.provider instead.",
-          "default": "openai"
-        },
-        "rubynod.ai.model": {
-          "type": "string",
-          "deprecationMessage": "Use rubynod.models.chatModel instead.",
-          "default": "gpt-4o-mini"
-        },
-        "rubynod.ai.tabAutocomplete": {
-          "type": "boolean",
-          "deprecationMessage": "Use rubynod.tab.enabled instead.",
-          "default": true
-        },
-        "rubynod.ai.autoApproveTerminal": {
-          "type": "boolean",
-          "deprecationMessage": "Use rubynod.agent.autoApproveTerminal instead.",
-          "default": false
-        },
-        "rubynod.ai.includeActiveFile": {
-          "type": "boolean",
-          "deprecationMessage": "Use rubynod.chat.includeActiveFile instead.",
-          "default": true
+    "configuration": [
+      {
+        "title": "Rubynod AI",
+        "order": 1,
+        "properties": {
+          "rubynod.actions.shortcuts": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "**Quick actions (click to run):** [Open all Rubynod settings](command:rubynod.openSettings) · [Indexing](command:rubynod.openIndexingSettings) · [Rules](command:rubynod.openRulesConfig) · [Skills](command:rubynod.openSkillsConfig) · [MCP config](command:rubynod.openMcpConfig)",
+            "order": 0
+          },
+          "rubynod.ai.serviceUrl": {
+            "type": "string",
+            "default": "http://127.0.0.1:3847",
+            "description": "URL of the Rubynod AI agent service.",
+            "order": 1
+          },
+          "rubynod.ai.lazyStart": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "When **true**, start the AI agent on first chat/index use only. When **false** (default), start automatically in the background when VS Code opens.",
+            "order": 2
+          },
+          "rubynod.ai.inProcess": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "Run the AI agent inside VS Code (experimental). **Default off** — uses a child Node process (auto-detected on PATH), which is more reliable. Enable only if you do not want a separate Node process.",
+            "order": 3
+          },
+          "rubynod.ai.nodePath": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "Path to **Node.js 20+** for child-process fallback only (`rubynod.ai.inProcess` off). Leave empty to auto-detect.",
+            "order": 4
+          },
+          "rubynod.ai.repoPath": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "*(Optional, dev fallback)* Path to a [Rubynod](https://github.com/rohitpatil7892/rubynod) git clone if the bundled server is missing. Normal installs start the agent automatically from the extension.",
+            "order": 5
+          },
+          "rubynod.logging.level": {
+            "type": "string",
+            "enum": [
+              "off",
+              "error",
+              "warn",
+              "info",
+              "debug"
+            ],
+            "default": "info",
+            "markdownDescription": "Rubynod log verbosity. View logs: **Output** panel → **Rubynod**, or **Cmd+Shift+P** → **Rubynod: Show Logs**. Use **debug** for agent tools, SSE events, and bridge calls.",
+            "order": 6
+          },
+          "rubynod.logging.showOnError": {
+            "type": "boolean",
+            "default": true,
+            "description": "Automatically open the Rubynod output log when an error is logged.",
+            "order": 7
+          },
+          "rubynod.models.provider": {
+            "type": "string",
+            "enum": [
+              "openai",
+              "anthropic",
+              "ollama",
+              "openrouter"
+            ],
+            "default": "ollama",
+            "description": "LLM provider (default: local Ollama).",
+            "order": 10
+          },
+          "rubynod.models.chatModel": {
+            "type": "string",
+            "default": "llama3.2",
+            "description": "Model for Chat and Agent.",
+            "order": 11
+          },
+          "rubynod.models.tabModel": {
+            "type": "string",
+            "default": "",
+            "description": "Model for Tab autocomplete. Empty = same as chat model.",
+            "order": 12
+          },
+          "rubynod.models.inlineModel": {
+            "type": "string",
+            "default": "",
+            "description": "Model for Cmd+K inline edit. Empty = same as chat model.",
+            "order": 13
+          },
+          "rubynod.models.baseUrl": {
+            "type": "string",
+            "default": "http://127.0.0.1:11434/v1",
+            "description": "API base URL (Ollama OpenAI-compatible endpoint by default).",
+            "order": 14
+          },
+          "rubynod.ollama.autoConnect": {
+            "type": "boolean",
+            "default": true,
+            "description": "On startup, detect Ollama and select an installed local model automatically.",
+            "order": 17
+          },
+          "rubynod.ollama.host": {
+            "type": "string",
+            "default": "http://127.0.0.1:11434",
+            "description": "Ollama server URL (without /v1).",
+            "order": 18
+          },
+          "rubynod.models.apiKey": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "API key for the provider. Prefer env vars (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) on shared machines. Rubynod stores keys in local settings.",
+            "order": 15
+          },
+          "rubynod.models.temperature": {
+            "type": "number",
+            "default": 0.2,
+            "minimum": 0,
+            "maximum": 2,
+            "description": "Sampling temperature for chat/agent.",
+            "order": 16
+          },
+          "rubynod.models.maxTokens": {
+            "type": "number",
+            "default": 8192,
+            "minimum": 256,
+            "maximum": 128000,
+            "description": "Max tokens per model response.",
+            "order": 17
+          },
+          "rubynod.chat.defaultMode": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "plan",
+              "ask",
+              "debug"
+            ],
+            "default": "agent",
+            "enumDescriptions": [
+              "Full agent: read/write files and terminal.",
+              "Plan only: explore and write a plan, no edits.",
+              "Ask only: Q&A without tools.",
+              "Debug: focus on logs and reproduction."
+            ],
+            "description": "Default mode when opening Chat.",
+            "order": 20
+          },
+          "rubynod.chat.includeActiveFile": {
+            "type": "boolean",
+            "default": true,
+            "description": "Attach the active editor file (and selection) to every message.",
+            "order": 21
+          },
+          "rubynod.chat.includeOpenFiles": {
+            "type": "boolean",
+            "default": false,
+            "description": "Also attach paths of all open editor tabs (lightweight list).",
+            "order": 22
+          },
+          "rubynod.chat.maxFileContextChars": {
+            "type": "number",
+            "default": 48000,
+            "description": "Max characters per attached file in chat context.",
+            "order": 23
+          },
+          "rubynod.chat.maxContextAttachments": {
+            "type": "number",
+            "default": 20,
+            "description": "Max @-attachments per message.",
+            "order": 24
+          },
+          "rubynod.tab.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable Tab ghost-text autocomplete.",
+            "order": 30
+          },
+          "rubynod.tab.debounceMs": {
+            "type": "number",
+            "default": 600,
+            "minimum": 100,
+            "maximum": 3000,
+            "description": "Delay before requesting a Tab completion.",
+            "order": 31
+          },
+          "rubynod.tab.model": {
+            "type": "string",
+            "default": "",
+            "description": "Override model for Tab only. Empty = rubynod.models.tabModel.",
+            "order": 32
+          },
+          "rubynod.inline.model": {
+            "type": "string",
+            "default": "",
+            "description": "Override model for Cmd+K inline edit.",
+            "order": 35
+          },
+          "rubynod.agent.autoApproveTerminal": {
+            "type": "boolean",
+            "default": false,
+            "description": "Run terminal commands without confirmation.",
+            "order": 40
+          },
+          "rubynod.agent.autoApproveFileWrites": {
+            "type": "boolean",
+            "default": false,
+            "description": "Apply agent file writes immediately without Accept/Reject in chat.",
+            "order": 41
+          },
+          "rubynod.agent.yoloMode": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "**YOLO mode**: auto-approve terminal + file writes. Use only in trusted repos.",
+            "order": 42
+          },
+          "rubynod.agent.maxTurns": {
+            "type": "number",
+            "default": 25,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Max tool-call loops per agent request.",
+            "order": 43
+          },
+          "rubynod.performance.folderContextMaxFiles": {
+            "type": "number",
+            "default": 30,
+            "minimum": 5,
+            "maximum": 100,
+            "description": "Max files included when attaching a folder.",
+            "order": 60
+          },
+          "rubynod.tools.webSearch": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "Enable **web_search** agent tool (DuckDuckGo). Requires network.",
+            "order": 65
+          },
+          "rubynod.update.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Check GitHub for new Rubynod releases and show an update notification (like VS Code).",
+            "order": 66
+          },
+          "rubynod.update.githubRepo": {
+            "type": "string",
+            "default": "rohitpatil7892/rubynod",
+            "markdownDescription": "GitHub repo for releases (`owner/name`). Change to your fork after publishing.",
+            "order": 67
+          },
+          "rubynod.update.checkIntervalHours": {
+            "type": "number",
+            "default": 12,
+            "minimum": 1,
+            "maximum": 168,
+            "description": "How often to check for updates (hours).",
+            "order": 68
+          },
+          "rubynod.privacy.telemetry": {
+            "type": "boolean",
+            "default": false,
+            "description": "Send anonymous usage telemetry (opt-in).",
+            "order": 62
+          },
+          "rubynod.mcp.enabled": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Enable MCP tool servers from `~/.rubynod/mcp.json`. [Edit MCP config](command:rubynod.openMcpConfig)",
+            "order": 70
+          },
+          "rubynod.ai.provider": {
+            "type": "string",
+            "deprecationMessage": "Use rubynod.models.provider instead.",
+            "default": "openai"
+          },
+          "rubynod.ai.model": {
+            "type": "string",
+            "deprecationMessage": "Use rubynod.models.chatModel instead.",
+            "default": "gpt-4o-mini"
+          },
+          "rubynod.ai.tabAutocomplete": {
+            "type": "boolean",
+            "deprecationMessage": "Use rubynod.tab.enabled instead.",
+            "default": true
+          },
+          "rubynod.ai.autoApproveTerminal": {
+            "type": "boolean",
+            "deprecationMessage": "Use rubynod.agent.autoApproveTerminal instead.",
+            "default": false
+          },
+          "rubynod.ai.includeActiveFile": {
+            "type": "boolean",
+            "deprecationMessage": "Use rubynod.chat.includeActiveFile instead.",
+            "default": true
+          }
+        }
+      },
+      {
+        "title": "Rubynod Indexing",
+        "order": 2,
+        "properties": {
+          "rubynod.actions.indexingShortcuts": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "**Indexing actions:** [Focus indexing settings](command:rubynod.openIndexingSettings) · [Build codebase index now](command:rubynod.buildIndex)",
+            "order": 49
+          },
+          "rubynod.index.autoIndexOnOpen": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Build codebase index when workspace opens (@codebase). Rebuild manually: **Rubynod: Build Codebase Index**.",
+            "order": 50
+          },
+          "rubynod.index.autoIndexOnSave": {
+            "type": "boolean",
+            "default": true,
+            "description": "Update index when files are saved.",
+            "order": 51
+          },
+          "rubynod.index.autoInjectContext": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Automatically attach relevant indexed code to every agent message (semantic search over your repo).",
+            "order": 52
+          },
+          "rubynod.index.maxAutoContextChunks": {
+            "type": "number",
+            "default": 8,
+            "description": "Max code chunks auto-injected per message.",
+            "order": 53
+          },
+          "rubynod.index.maxAutoContextChars": {
+            "type": "number",
+            "default": 24000,
+            "description": "Max characters of auto-injected index context.",
+            "order": 54
+          },
+          "rubynod.performance.indexSaveDebounceMs": {
+            "type": "number",
+            "default": 800,
+            "minimum": 200,
+            "maximum": 5000,
+            "description": "Debounce incremental index updates on save (ms).",
+            "order": 55
+          },
+          "rubynod.performance.indexBuildConcurrency": {
+            "type": "number",
+            "default": 8,
+            "minimum": 1,
+            "maximum": 32,
+            "description": "Parallel files during full index build.",
+            "order": 56
+          },
+          "rubynod.performance.searchCandidateLimit": {
+            "type": "number",
+            "default": 400,
+            "minimum": 50,
+            "maximum": 2000,
+            "description": "Max chunks considered per hybrid search query.",
+            "order": 57
+          },
+          "rubynod.performance.contextCacheTtlSec": {
+            "type": "number",
+            "default": 45,
+            "minimum": 0,
+            "maximum": 600,
+            "description": "Cache @codebase context packs per query (0 = off).",
+            "order": 58
+          },
+          "rubynod.performance.statusPollIntervalMs": {
+            "type": "number",
+            "default": 30000,
+            "minimum": 5000,
+            "maximum": 120000,
+            "description": "Index status bar refresh when idle (ms).",
+            "order": 59
+          },
+          "rubynod.privacy.privacyMode": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "**Privacy mode**: avoid sending code to cloud embedders; prefer local index only.",
+            "order": 60
+          },
+          "rubynod.privacy.localIndexOnly": {
+            "type": "boolean",
+            "default": true,
+            "description": "Use local embeddings for @codebase (no cloud embedding API).",
+            "order": 61
+          }
+        }
+      },
+      {
+        "title": "Rubynod Rules, Skills & MCP",
+        "order": 3,
+        "properties": {
+          "rubynod.actions.openRules": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "Agent **rules** are markdown files (not toggles here). Paths: `.rubynod/rules/`, `AGENTS.md`, `~/.rubynod/rules/`.\n\n[Open Rules](command:rubynod.openRulesConfig)",
+            "order": 1
+          },
+          "rubynod.actions.openSkills": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "Agent **skills** are `SKILL.md` folders. Paths: `.rubynod/skills/<name>/SKILL.md`, `~/.rubynod/skills/`.\n\n[Open Skills](command:rubynod.openSkillsConfig)",
+            "order": 2
+          },
+          "rubynod.actions.openMcp": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "Connect MCP servers for extra agent tools (`mcp_<server>_<tool>`). Edit `~/.rubynod/mcp.json` or `.rubynod/mcp.json`. Keep **Rubynod › Mcp: Enabled** on below.\n\n[Open MCP Config](command:rubynod.openMcpConfig)",
+            "order": 3
+          },
+          "rubynod.actions.mcpEnabledLink": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "Turn MCP on/off: setting **Rubynod › Mcp: Enabled** (`rubynod.mcp.enabled`) in the Rubynod AI section.",
+            "order": 4
+          },
+          "rubynod.guide.rulesAndSkills": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "**All quick actions:** [Settings](command:rubynod.openSettings) · [Indexing](command:rubynod.openIndexingSettings) · [Rules](command:rubynod.openRulesConfig) · [Skills](command:rubynod.openSkillsConfig) · [MCP](command:rubynod.openMcpConfig)",
+            "order": 5
+          }
         }
       }
-    }
+    ]
   },
   "scripts": {
     "build": "tsc -p ./",

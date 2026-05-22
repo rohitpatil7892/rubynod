@@ -74,4 +74,9 @@ With `rubynod.privacy.localIndexOnly` (default **true**), embeddings are compute
 
 - **“Index offline”** — Start AI service: `npm run dev:ai`
 - **“Index empty”** — Run **Build Codebase Index** or open a folder with source files
+- **“0 chunks from 0 files” on a large repo** — Usually one of:
+  - Workspace is not the project root (use **File → Open Folder** on the repo, not a parent with only subfolders ignored)
+  - `.gitignore` / `.cursorignore` excludes all source (add paths to `.rubynodignore` with `!src/` style negation if needed)
+  - No folder open (Rubynod falls back to `process.cwd()`, which may not contain your code)
+  - Files are larger than **512KB** each (split or exclude via `.rubynodignore`)
 - **Poor results** — Rebuild index after large refactors; use specific queries in `@codebase`

@@ -14,8 +14,16 @@ import { setChatProviderRef, getChatProviderRef } from './chat-provider';
 import { IndexService } from './index-service';
 import { UpdateChecker } from './update-checker';
 import { OllamaConnect } from './ollama-connect';
-import { startAiService, stopAiService } from './ai-service';
+import { killStaleProcessOnAiPort, startAiService, stopAiService } from './ai-service';
 import { configureRubynod, ensureRubynodReady } from './rubynod-ready';
+import { extLog, getRubynodLogLevel, showRubynodOutput } from './logger';
+import {
+  openAllRubynodSettings,
+  openIndexingSettings,
+  openMcpConfig,
+  openRulesConfig,
+  openSkillsConfig,
+} from './agent-config';
 
 let chatProvider: ChatViewProvider;
 let indexService: IndexService;
@@ -68,7 +76,7 @@ function warmStartAiInBackground(): void {
   void (async () => {
     const ok = await ensureRubynodReady();
     if (!ok) {
-      console.warn('[rubynod-ai-ui] Background AI start failed — see Output → Rubynod AI Service');
+      extLog.error('Background AI start failed — open Output → Rubynod');
     }
     await getChatProviderRef()?.refreshPanel();
   })();
@@ -76,13 +84,17 @@ function warmStartAiInBackground(): void {
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const selfVersion = String(context.extension.packageJSON.version ?? '0.0.0');
-  console.log(`[rubynod-ai-ui] activate v${selfVersion}`);
+  extLog.info(`Activate v${selfVersion}`, {
+    logLevel: getRubynodLogLevel(),
+    workspace: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+  });
+  if (getRubynodLogLevel() === 'debug') {
+    showRubynodOutput(true);
+  }
   const duplicates = findDuplicateRubynodExtensions(context.extension.id);
 
   if (duplicates.length > 0 && !isNewestRubynodCopy(context.extension.id, selfVersion)) {
-    console.warn(
-      `[rubynod-ai-ui] Skipping activate for v${selfVersion} — newer duplicate is installed.`
-    );
+    extLog.warn(`Skipping activate for v${selfVersion} — newer duplicate installed`);
     return;
   }
 
@@ -96,7 +108,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   attachTerminalListener();
 
   const bridgePort = await startBridgeServer();
+  extLog.info('Extension ready', { bridgePort, extensionPath: context.extensionPath });
   configureRubynod(context.extensionPath, bridgePort);
+
+  // After extension update, a detached server may still run outdated agent code on :3847.
+  const lastAiVersion = context.globalState.get<string>('rubynod.aiServiceExtensionVersion');
+  if (lastAiVersion !== selfVersion) {
+    killStaleProcessOnAiPort();
+    await stopAiService().catch(() => {});
+    await context.globalState.update('rubynod.aiServiceExtensionVersion', selfVersion);
+  }
 
   chatProvider = new ChatViewProvider(context.extensionUri, context);
   setChatProviderRef(chatProvider);
@@ -148,11 +169,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       startAiService(context.extensionPath)
     ),
     vscode.commands.registerCommand('rubynod.stopAiService', () => stopAiService()),
+    vscode.commands.registerCommand('rubynod.showLogs', () => showRubynodOutput(false)),
     vscode.commands.registerCommand('rubynod.openSettings', () => {
-      vscode.commands.executeCommand(
-        'workbench.action.openSettings',
-        `@ext:${context.extension.id}`
-      );
+      openAllRubynodSettings(context.extension.id);
+    }),
+    vscode.commands.registerCommand('rubynod.openIndexingSettings', () => {
+      openIndexingSettings(context.extension.id);
+    }),
+    vscode.commands.registerCommand('rubynod.openRulesConfig', () => {
+      void openRulesConfig();
+    }),
+    vscode.commands.registerCommand('rubynod.openSkillsConfig', () => {
+      void openSkillsConfig();
+    }),
+    vscode.commands.registerCommand('rubynod.openMcpConfig', () => {
+      void openMcpConfig();
     }),
     vscode.commands.registerCommand('rubynod.openChat', async () => {
       await vscode.commands.executeCommand('rubynod.chatView.focus');

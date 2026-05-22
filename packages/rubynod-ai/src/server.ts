@@ -23,8 +23,13 @@ import { buildSystemPrompt, getSkillBody } from './rules.js';
 import { queueIndexBuild } from './index-queue.js';
 import { getCachedContextPack, setCachedContextPack } from './context-cache.js';
 import { appendMemory, loadMemories } from './memories.js';
-import { checkOllamaHealth, listOllamaModels, pickDefaultOllamaModel } from './ollama.js';
+import {
+  checkOllamaHealth,
+  listOllamaModelsWithCapabilities,
+  pickDefaultOllamaModel,
+} from './ollama.js';
 import { initSqlEngine } from '@rubynod/index';
+import { serverLog } from './logger.js';
 
 const PORT = Number(process.env.RUBYNOD_AI_PORT ?? 3847);
 const HOST = process.env.RUBYNOD_AI_HOST ?? '127.0.0.1';
@@ -63,7 +68,7 @@ app.get('/ollama/health', async (req, res) => {
 app.get('/ollama/models', async (req, res) => {
   const host = (req.query.host as string) || process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
   try {
-    const models = await listOllamaModels(host);
+    const models = await listOllamaModelsWithCapabilities(host);
     const suggested = pickDefaultOllamaModel(models);
     res.json({ ok: true, host, models, suggested });
   } catch (e) {
@@ -212,9 +217,17 @@ app.get('/skills/:name', (req, res) => {
 
 app.post('/agent/run', async (req, res) => {
   const body = req.body as AgentRequest & { bridgeUrl?: string };
+  serverLog.info('POST /agent/run', {
+    mode: body.mode,
+    model: body.model,
+    provider: body.provider,
+    workspaceRoot: body.workspaceRoot,
+    messagePreview: String(body.message ?? '').slice(0, 80),
+  });
   if (body.bridgeUrl) {
     setBridgeUrl(body.bridgeUrl);
     setIdeBridge(createHttpIdeBridge());
+    serverLog.debug('IDE bridge URL set', { bridgeUrl: body.bridgeUrl });
   }
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -227,8 +240,10 @@ app.post('/agent/run', async (req, res) => {
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    serverLog.error('Agent run stream error', message);
     res.write(`data: ${JSON.stringify({ type: 'error', data: { message } })}\n\n`);
   }
+  serverLog.debug('POST /agent/run stream ended');
   res.end();
 });
 

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { normalizeToolFilePath } from './sanitize-code.js';
 
 const SERVER_CANDIDATES = [
   'server.js',
@@ -148,12 +149,81 @@ export function inspectWorkspaceSetup(workspaceRoot: string): string {
   return lines.join('\n');
 }
 
+const RESERVED_MENTIONS = new Set([
+  'codebase',
+  'web',
+  'symbol',
+  'folder',
+  'file',
+  'typescript',
+  'javascript',
+]);
+
+/** Paths from @server.js / @src/foo.ts in the user message (composer mentions). */
+export function extractMentionedFilePaths(message: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const re = /@([^\s@/]+(?:\/[^\s@]+)*\.[a-z0-9]{1,8})/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(message)) !== null) {
+    const raw = m[1]!.toLowerCase();
+    if (RESERVED_MENTIONS.has(raw.split('/')[0]!)) continue;
+    const p = normalizeToolFilePath(m[1]!);
+    if (!seen.has(p)) {
+      seen.add(p);
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+export function hasExplicitFileMention(message: string): boolean {
+  return extractMentionedFilePaths(message).length > 0;
+}
+
+/** Prefer forcing tool calls when the user asks to create or implement files/services. */
+export function shouldRequireAgentTools(message: string): boolean {
+  if (hasExplicitFileMention(message)) return true;
+  const m = message.toLowerCase();
+  return (
+    /\b(create|add|implement|scaffold|build|generate|write|make)\b/.test(m) &&
+    /\b(file|files|service|module|package|folder|directory|library|client)\b/.test(m)
+  );
+}
+
+/** Tell the model to edit only the @mentioned file(s), not dump package.json in chat. */
+export function buildFocusedFileDirective(message: string): string | null {
+  const files = extractMentionedFilePaths(message);
+  if (!files.length) return null;
+  return (
+    `### User target file(s)\n` +
+    files.map((f) => `- ${f}`).join('\n') +
+    '\n\nRules for this turn:\n' +
+    `- Edit ONLY these file(s) unless the user also named another path.\n` +
+    `- Call read_file('${files[0]}') first, then search_replace to add APIs/routes.\n` +
+    `- Do NOT paste or rewrite package.json in the chat response.\n` +
+    `- Do NOT write_file('package.json') unless the user explicitly asked for package.json.\n` +
+    `- Answer briefly after tools run (e.g. "Added GET /db/users to server.js").`
+  );
+}
+
+/** Block writes to package.json when the user @mentioned a different file only. */
+export function isWritePathAllowedForMessage(userMessage: string, relPath: string): boolean {
+  const focused = extractMentionedFilePaths(userMessage);
+  if (!focused.length) return true;
+  const p = normalizeToolFilePath(relPath);
+  if (p !== 'package.json') return true;
+  if (/\bpackage\.json\b/i.test(userMessage)) return true;
+  return false;
+}
+
 /** Whether to attach workspace snapshot to the user message automatically. */
 export function shouldAttachWorkspaceSetup(message: string): boolean {
+  if (hasExplicitFileMention(message)) return false;
   const m = message.toLowerCase();
   return (
     /\b(server|express|node\.?js|npm|package\.json)\b/.test(m) ||
-    /\b(create|add|make|build|setup|scaffold|run|start)\b/.test(m) &&
-      /\b(file|project|app|api|backend)\b/.test(m)
+    (/\b(create|add|make|build|setup|scaffold|run|start)\b/.test(m) &&
+      /\b(file|project|app|api|backend)\b/.test(m))
   );
 }
