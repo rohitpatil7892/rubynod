@@ -17,7 +17,8 @@ description: Create or update a minimal Node.js HTTP server with optional packag
 | User wants code only | `write_file` → `server.js` (plain `http` or `express` if deps exist) |
 | `package.json` missing + user wants to run | Minimal `package.json`: `name`, `"start": "node server.js"`, `dependencies` if using express |
 | `package.json` exists | Add/update `scripts.start` with `search_replace` if needed |
-| Dependencies missing | Suggest `npm install express` (or use in chat); run via `run_terminal` after user approves |
+| Dependencies missing (listed in package.json) | Run **`npm install`** once at project root — not per-package loops |
+| Need to add a **new** package | `npm install <pkg>` or update package.json + `npm install` |
 
 ## 3. Minimal server.js (no express)
 

@@ -6,8 +6,11 @@ import { McpHub } from '@rubynod/mcp';
 import { buildSystemPrompt } from './rules.js';
 import {
   buildFocusedFileDirective,
+  buildNpmInstallDirective,
+  extractMentionedFilePaths,
   hasExplicitFileMention,
   inspectWorkspaceSetup,
+  isNpmInstallIntent,
   shouldAttachWorkspaceSetup,
   shouldRequireAgentTools,
 } from './project-context.js';
@@ -17,6 +20,15 @@ import {
   stripAssistantChatNoise,
 } from './sanitize-code.js';
 import { getCachedContextPack, setCachedContextPack } from './context-cache.js';
+import { buildContextBundle } from './context-bundle.js';
+import {
+  buildScratchpadSummary,
+  recordFileRead,
+  recordFileEdit,
+  recordCommand,
+  recordError,
+} from './agent-scratchpad.js';
+import { workspaceSummaryAsContext } from './workspace-summary.js';
 import { queueIndexBuild } from './index-queue.js';
 import { ModelRouter, resolveModelConfig } from './model-router.js';
 import {
@@ -107,8 +119,45 @@ export async function* runAgent(
     queueIndexBuild(req.workspaceRoot, indexer).catch(console.error);
   }
 
-  const autoContext = cs?.autoIndexContext !== false;
-  const contextAttachments = [...(req.context ?? [])];
+  const autoContextMode: 'coding' | 'minimal' | 'off' =
+    cs?.autoContextMode ?? (cs?.autoIndexContext !== false ? 'coding' : 'off');
+
+  // Build getBridgeActiveContext callback that fetches active file + diagnostics from IDE
+  const getBridgeActiveContext = bridge
+    ? async () => {
+        const active: import('./types.js').ContextAttachment[] = [];
+        try {
+          const editors = await bridge.getOpenEditors?.();
+          const firstFile = typeof editors === 'string' ? editors.split('\n')[0]?.trim() : '';
+          if (firstFile) {
+            const content = await bridge.readFile(firstFile, 1, 200).catch(() => '');
+            if (content && !content.startsWith('Error:')) {
+              active.push({ type: 'file', label: `Active: ${firstFile}`, path: firstFile, content: `## Active file: ${firstFile}\n\`\`\`\n${content}\n\`\`\`` });
+            }
+          }
+          const lints = await bridge.readLints?.([]);
+          if (lints && lints !== '(no diagnostics)' && !lints.startsWith('(lint')) {
+            active.push({ type: 'diagnostics', label: 'Diagnostics', content: `## Problems\n${lints.split('\n').slice(0, 30).join('\n')}` });
+          }
+        } catch {
+          // Bridge may not have all methods; skip silently
+        }
+        return active;
+      }
+    : undefined;
+
+  const contextAttachments = await buildContextBundle({
+    message: req.message,
+    manualAttachments: req.context ?? [],
+    workspaceRoot: req.workspaceRoot,
+    indexer,
+    autoContextMode: autoContextMode as 'coding' | 'minimal' | 'off',
+    maxAutoContextChunks: cs?.maxAutoContextChunks ?? 8,
+    maxAutoContextChars: cs?.maxAutoContextChars ?? 24_000,
+    contextCacheTtlSec: cs?.contextCacheTtlSec ?? 45,
+    getBridgeActiveContext,
+    model: req.model,
+  });
 
   if (mode === 'agent' && shouldAttachWorkspaceSetup(req.message)) {
     contextAttachments.unshift({
@@ -117,23 +166,10 @@ export async function* runAgent(
       content: inspectWorkspaceSetup(req.workspaceRoot),
     });
   }
-  const cacheTtl = cs?.contextCacheTtlSec ?? 45;
-  if (autoContext && req.message.trim().length > 3) {
-    let pack = getCachedContextPack(req.workspaceRoot, req.message, cacheTtl);
-    if (!pack && indexer.isReady()) {
-      pack = indexer.getContextPack(req.message, {
-        limit: cs?.maxAutoContextChunks ?? 8,
-        maxChars: cs?.maxAutoContextChars ?? 24_000,
-      });
-      setCachedContextPack(req.workspaceRoot, req.message, pack, cacheTtl);
-    }
-    if (pack?.chunks.length) {
-      contextAttachments.push({
-        type: 'codebase',
-        label: `@codebase (auto): ${pack.summary}`,
-        content: pack.formatted,
-      });
-    }
+  // Attach workspace summary (framework, test runner, etc.) as low-priority context
+  const wsSummaryCtx = workspaceSummaryAsContext(req.workspaceRoot);
+  if (wsSummaryCtx && !contextAttachments.some((a) => a.label === 'Workspace stack')) {
+    contextAttachments.push(wsSummaryCtx);
   }
 
   const mcpHub = new McpHub();
@@ -156,6 +192,12 @@ export async function* runAgent(
     ollamaSupportsTools = await ollamaModelSupportsTools(config.model, host);
     if (!ollamaSupportsTools) {
       agentLog.warn('Ollama model does not support tools', { model: config.model, host });
+      if (mode === 'agent') {
+        const err = formatOllamaNoToolsModelError(config.model);
+        yield { type: 'error', data: { message: err } };
+        yield { type: 'done', data: { threadId } };
+        return;
+      }
     }
   }
 
@@ -179,13 +221,20 @@ export async function* runAgent(
     );
 
   let system = buildSystemPrompt(req.workspaceRoot, mode);
-  const focusedFileHint = buildFocusedFileDirective(req.message);
+  const focusedFileHint = buildFocusedFileDirective(req.message, req.workspaceRoot);
   if (focusedFileHint) {
     system += `\n\n${focusedFileHint}`;
+  } else if (mode === 'agent' && isNpmInstallIntent(req.message)) {
+    system += `\n\n${buildNpmInstallDirective(req.workspaceRoot)}`;
   }
   if (isGreeting) {
     system +=
       '\n\nThe user sent a brief greeting only. Reply in one or two friendly sentences. Do not call read_file or any other tools.';
+  }
+  // Inject per-thread scratchpad summary to prevent re-reads and re-installs
+  const scratchpadSummary = buildScratchpadSummary(thread.id);
+  if (scratchpadSummary) {
+    system += `\n\n${scratchpadSummary}`;
   }
   const messages: ChatMessage[] = [
     { role: 'system', content: system },
@@ -200,6 +249,8 @@ export async function* runAgent(
   let retriedToolJson = false;
   let tutorialNudges = 0;
   const maxTutorialNudges = 3;
+  const touchedPaths = new Set<string>();
+  let verifyDone = false;
 
   for (let turn = 0; turn < maxTurns; turn++) {
     if (thread.cancelled) {
@@ -407,16 +458,19 @@ export async function* runAgent(
               content: rawAssistantForRecovery.slice(0, 8000),
             });
           }
-          const pathHint = targetPath ?? 'shared/booking-api-client.service.ts';
-          messages.push({
-            role: 'user',
-            content:
-              'Do not explain steps or Nx commands in chat. Call tools now:\n' +
+          const mentioned = extractMentionedFilePaths(req.message);
+          const pathHint = mentioned[0] ?? targetPath ?? 'shared/booking-api-client.service.ts';
+          const retryContent = mentioned.length
+            ? `Do not paste code or tutorials in chat. Edit the @mentioned file with tools now:\n` +
+              `1) read_file('${mentioned[0]}')\n` +
+              `2) search_replace on '${mentioned[0]}' with the requested changes\n` +
+              'Reply in one short sentence after the file is updated.'
+            : 'Do not explain steps or Nx commands in chat. Call tools now:\n' +
               '1) list_dir or glob to find shared/libs layout\n' +
               '2) read_file on an existing *.service.ts if present\n' +
               `3) write_file("${pathHint}", contents=...) with complete TypeScript\n` +
-              'No placeholders. Use native tool calls only.',
-          });
+              'No placeholders. Use native tool calls only.';
+          messages.push({ role: 'user', content: retryContent });
           continue;
         }
 
@@ -562,9 +616,13 @@ export async function* runAgent(
             thread!.mode = m;
           },
           onDiff: (file, oldC, newC) => {
+            const oldLines = (oldC ?? '').split('\n');
+            const newLines = (newC ?? '').split('\n');
+            const added = newLines.filter((l, i) => l !== oldLines[i] && i >= oldLines.length - 1 || !oldLines.includes(l)).length;
+            const removed = oldLines.filter((l, i) => l !== newLines[i] && i >= newLines.length - 1 || !newLines.includes(l)).length;
             const ev: AgentEvent = {
               type: 'diff',
-              data: { file, oldContent: oldC, newContent: newC, threadId },
+              data: { file, oldContent: oldC, newContent: newC, threadId, added, removed },
             };
             onEvent?.(ev);
           },
@@ -574,6 +632,19 @@ export async function* runAgent(
       }
 
       const ok = !result.startsWith('Error:') && !result.startsWith('Rejected');
+
+      // Record tool events into per-thread scratchpad
+      if (ok) {
+        if ((tc.name === 'read_file' || tc.name === 'readFile') && typeof parsed.path === 'string') {
+          recordFileRead(thread.id, String(parsed.path));
+        } else if ((tc.name === 'write_file' || tc.name === 'search_replace') && typeof parsed.path === 'string') {
+          recordFileEdit(thread.id, String(parsed.path));
+        } else if (tc.name === 'run_terminal' && typeof parsed.command === 'string') {
+          recordCommand(thread.id, String(parsed.command));
+        }
+      } else if (result.startsWith('Error:')) {
+        recordError(thread.id, result.slice(0, 200));
+      }
 
       let writtenPath: string | undefined;
       let writtenContents: string | undefined;
@@ -617,6 +688,39 @@ export async function* runAgent(
       toolsExecutedThisRun++;
       if (ok && (tc.name === 'write_file' || tc.name === 'search_replace')) {
         fileMutatingToolsRan++;
+        if (typeof parsed.path === 'string') {
+          touchedPaths.add(String(parsed.path).trim());
+        }
+      }
+    }
+
+    // Post-edit verify: after file writes, auto-run read_lints once to catch errors
+    if (!verifyDone && touchedPaths.size > 0 && fileMutatingToolsRan > 0 && pendingToolCalls.length === 0) {
+      verifyDone = true;
+      const paths = [...touchedPaths];
+      const lintId = `verify-${randomUUID()}`;
+      yield { type: 'activity', data: { id: lintId, step: 'verify', label: 'Checking for lint errors…', status: 'active', threadId } };
+      let lintResult: string;
+      try {
+        lintResult = bridge
+          ? await bridge.readLints(paths)
+          : `(lints unavailable without IDE bridge)`;
+      } catch {
+        lintResult = '(lint check failed)';
+      }
+      yield { type: 'activity', data: { id: lintId, step: 'verify', label: 'Lint check done', status: 'done', threadId } };
+
+      const hasErrors = lintResult && lintResult !== '(no diagnostics)' && !lintResult.startsWith('(lint');
+      if (hasErrors) {
+        const lintMsg: ChatMessage = { role: 'tool', content: lintResult, toolCallId: lintId, name: 'read_lints' };
+        thread.messages.push(lintMsg);
+        messages.push(lintMsg);
+        messages.push({
+          role: 'user',
+          content: `The files you edited have lint errors:\n\n${lintResult}\n\nFix them now using search_replace or write_file.`,
+        });
+        agentLog.info('Post-edit lint errors found — auto-repair turn triggered', { paths, preview: lintResult.slice(0, 300) });
+        continue;
       }
     }
   }

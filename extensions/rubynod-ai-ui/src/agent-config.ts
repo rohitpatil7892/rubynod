@@ -145,6 +145,7 @@ export function openIndexingSettings(_extensionId: string): void {
   void vscode.commands.executeCommand('workbench.action.openSettings', 'rubynod.index');
 }
 
+/** @deprecated Use rubynod.openSettings (Copilot-style panel). Kept for deep links. */
 export function openAllRubynodSettings(extensionId: string): void {
   void vscode.commands.executeCommand('workbench.action.openSettings', `@ext:${extensionId}`);
 }

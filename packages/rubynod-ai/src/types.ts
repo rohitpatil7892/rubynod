@@ -32,6 +32,7 @@ export interface ClientSettings {
   mcpEnabled?: boolean;
   yoloMode?: boolean;
   autoIndexContext?: boolean;
+  autoContextMode?: 'coding' | 'minimal' | 'off';
   maxAutoContextChunks?: number;
   maxAutoContextChars?: number;
   contextCacheTtlSec?: number;
@@ -87,6 +88,12 @@ export interface IdeBridge {
   getSelection(): Promise<string>;
   getTerminalBuffer(): Promise<string>;
   getGitContext(): Promise<string>;
+  /** Symbol-graph: go-to-definition */
+  findDefinition?(fileUri: string, line: number, character: number): Promise<string>;
+  /** Symbol-graph: find all references (deduped by file) */
+  findReferences?(fileUri: string, line: number, character: number): Promise<string>;
+  /** Symbol-graph: document symbols / outline */
+  getDocumentSymbols?(fileUri: string): Promise<string>;
 }
 
 export interface ThreadState {

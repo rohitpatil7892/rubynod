@@ -59,7 +59,12 @@ function mightBeLeakedToolText(text: string): boolean {
   if (/```json/i.test(text) && /\{\s*"name/i.test(text)) return true;
   if (/^\s*\{\s*"name/i.test(text.trim())) return true;
   if (/"dependencies"\s*:\s*\{/.test(text) && /"name"\s*:\s*"/.test(text)) return true;
+  if (/\[tool[_\s-]?calls?\]/i.test(text)) return true;
   const t = text.trimStart();
+  if (t.startsWith('{')) {
+    if (/^\{\s*$/.test(t.trim())) return true;
+    if (t.length < 500 && !/\}/.test(t)) return true;
+  }
   if (!t.startsWith('{')) return false;
   if (
     /"name"\s*:\s*"(?:write_file|read_file|search_replace|run_terminal|glob|grep)"/.test(t)
@@ -78,6 +83,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private activeTools = new Map<string, { name: string; args: Record<string, unknown> }>();
   private turnAssistantText = '';
   private inlineToolJsonBuffer = '';
+  /** Latest plan content from the most recent plan-mode turn. */
+  private _latestPlan: string | undefined;
+  /** Plan context injected for the approve-plan execute run. */
+  private _pendingPlanContext: string | undefined;
   /** Multi-file edit targets (formerly Composer-only). */
   private targetFiles: string[] = [];
   private readonly history: ChatHistory;
@@ -122,6 +131,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   addAttachments(items: ContextAttachment[]): void {
     addContext(items);
     this.refreshChips();
+  }
+
+  /** Pre-fill the composer input field with text (used by "Fix with Rubynod" command). */
+  prefillComposer(text: string): void {
+    this.post({ type: 'prefillComposer', text });
   }
 
   private refreshChips(): void {
@@ -175,7 +189,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.messageDisposable?.dispose();
 
     const webview = webviewView.webview;
-    webview.options = { enableScripts: true };
+    webview.options = {
+      enableScripts: true,
+      enableDragAndDrop: true,
+    } as vscode.WebviewOptions;
 
     this.messageDisposable = webview.onDidReceiveMessage((msg) => {
       void this.handleMessage(msg).catch((err) => {
@@ -183,24 +200,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       });
     });
 
-    const baked = await this.buildInitialPanelState();
-    if (!baked.online && isShowAiStatusBarIndicator()) {
-      this.aiStatusBar.show();
-      this.aiStatusBar.text = '$(error) Rubynod AI';
-      this.aiStatusBar.tooltip =
-        baked.error ??
-        'AI service failed to start — Output → Rubynod AI Service, or Rubynod: Start AI Service';
-    }
-
+    // Set HTML immediately so a retained webview does not stay stuck on an old "Connecting…" state
+    // while buildInitialPanelState() waits for the AI service (can take several seconds).
     webview.html = getChatHtml(getDefaultChatMode(), this.extensionVersion, {
       ...this.webviewConfig(),
-      initialOnline: baked.online,
-      initialModels: baked.models,
-      initialModelLabels: baked.modelLabels,
-      initialCurrent: baked.current,
-      initialProvider: baked.provider,
-      initialError: baked.error,
     });
+
+    void this.bootstrapPanelAfterHtml();
 
     this.bootstrapFallbackTimer = setTimeout(() => {
       if (!this.webviewReady) {
@@ -211,11 +217,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     if (this.healthTimer) clearInterval(this.healthTimer);
     this.healthTimer = setInterval(() => {
-      if (this.view?.webview) void this.refreshPanel();
-    }, 8000);
+      if (this.view?.webview) void this.pushPanelInit(true);
+    }, 60_000);
 
     webviewView.onDidChangeVisibility(() => {
-      if (webviewView.visible && this.webviewReady) void this.refreshPanel();
+      if (webviewView.visible && this.webviewReady) void this.pushPanelInit(true);
     });
 
     webviewView.onDidDispose(() => {
@@ -241,15 +247,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   /** Refresh status + models (safe to call anytime the chat panel is open). */
-  async refreshPanel(): Promise<void> {
-    await this.pushPanelInit();
+  async refreshPanel(silent = false): Promise<void> {
+    await this.pushPanelInit(silent);
   }
 
   /** Sync AI status and model list to the webview (extension-side; no webview fetch). */
-  async pushPanelInit(): Promise<void> {
+  async pushPanelInit(silent = false): Promise<void> {
     if (!this.view?.webview || !this.webviewReady) return;
     try {
-      await this.refreshAiStatus();
+      await this.refreshAiStatus(silent);
       await this.refreshChatModels();
     } catch (err) {
       chatLog.error('pushPanelInit failed', err);
@@ -306,21 +312,68 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  /** Called after webview HTML is set; starts AI if needed and pushes status/models. */
+  private async bootstrapPanelAfterHtml(): Promise<void> {
+    const baked = await this.buildInitialPanelState();
+    if (!baked.online && isShowAiStatusBarIndicator()) {
+      this.aiStatusBar.show();
+      this.aiStatusBar.text = '$(error) Rubynod AI';
+      this.aiStatusBar.tooltip =
+        baked.error ??
+        'AI service failed to start — Output → Rubynod AI Service, or Rubynod: Start AI Service';
+    }
+    this.post({
+      type: 'aiStatus',
+      online: baked.online,
+      checking: false,
+      hidden: !isShowAiOfflineIndicator(),
+    });
+    this.post({
+      type: 'chatModels',
+      loading: false,
+      provider: baked.provider,
+      providers: CHAT_PROVIDERS,
+      models: baked.models,
+      modelLabels: baked.modelLabels,
+      noToolModels: baked.noToolModels ?? [],
+      current: baked.current,
+      showPicker: true,
+      error: baked.error,
+    });
+    chatLog.info('Panel bootstrap complete', { online: baked.online, models: baked.models.length });
+  }
+
+  /** Push online status when the AI service becomes ready (warm start or manual start). */
+  notifyServiceReady(): void {
+    void (async () => {
+      const online = await isAiServiceHealthy();
+      chatLog.info(`notifyServiceReady: ${online ? 'online' : 'offline'}`);
+      this.post({
+        type: 'aiStatus',
+        online,
+        checking: false,
+        hidden: !isShowAiOfflineIndicator(),
+      });
+      if (online && this.webviewReady) void this.refreshChatModels();
+    })();
+  }
+
   private async buildInitialPanelState(): Promise<{
     online: boolean;
     provider: string;
     models: string[];
     modelLabels?: Record<string, string>;
+    noToolModels?: string[];
     current: string;
     error?: string;
   }> {
-    let online = await isAiServiceHealthy();
+    let online = await this.checkHealthWithRetries(3, 400);
     if (!online) {
       const ready = await Promise.race([
         ensureRubynodReady(),
         new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 12_000)),
       ]);
-      online = ready && (await isAiServiceHealthy());
+      online = ready && (await this.checkHealthWithRetries(5, 500));
     }
     if (!online) {
       return {
@@ -338,6 +391,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         provider: resolved.provider,
         models: resolved.models,
         modelLabels: resolved.modelLabels,
+        noToolModels: resolved.noToolModels,
         current: resolved.current,
         error: resolved.error,
       };
@@ -353,8 +407,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private async checkHealthWithRetries(attempts: number, delayMs: number): Promise<boolean> {
+    for (let i = 0; i < attempts; i++) {
+      if (await isAiServiceHealthy()) return true;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+    }
+    return false;
+  }
+
   private async onWebviewReady(): Promise<void> {
     this.webviewReady = true;
+    chatLog.info('webviewReady received — extension ↔ webview channel is open');
     if (this.bootstrapFallbackTimer) {
       clearTimeout(this.bootstrapFallbackTimer);
       this.bootstrapFallbackTimer = undefined;
@@ -379,15 +442,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     await this.pushPanelInit();
   }
 
-  async refreshAiStatus(): Promise<void> {
-    this.post({ type: 'aiStatus', online: false, checking: true, hidden: !isShowAiOfflineIndicator() });
+  async refreshAiStatus(silent = false): Promise<void> {
+    if (!silent) {
+      this.post({ type: 'aiStatus', online: false, checking: true, hidden: !isShowAiOfflineIndicator() });
+    }
     if (isShowAiStatusBarIndicator()) {
       this.aiStatusBar.show();
-      this.aiStatusBar.text = '$(sync~spin) Rubynod AI';
+      if (!silent) this.aiStatusBar.text = '$(sync~spin) Rubynod AI';
     } else {
       this.aiStatusBar.hide();
     }
     const online = await isAiServiceHealthy();
+    chatLog.info(`AI health check: ${online ? 'online' : 'offline'} (silent=${silent})`);
     this.post({ type: 'aiStatus', online, checking: false, hidden: !isShowAiOfflineIndicator() });
     if (isShowAiStatusBarIndicator()) {
       this.aiStatusBar.show();
@@ -444,7 +510,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     const resolved = await resolveChatModelsForProvider(provider);
-    const { models, modelLabels, current: picked, error } = resolved;
+    const { models, modelLabels, noToolModels, current: picked, error } = resolved;
 
     if (picked && models.length) {
       const cfg = vscode.workspace.getConfiguration('rubynod');
@@ -461,6 +527,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       providers: CHAT_PROVIDERS,
       models,
       modelLabels,
+      noToolModels,
       current: picked,
       showPicker: true,
       error,
@@ -517,7 +584,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private post(msg: unknown) {
+  post(msg: unknown) {
     const webview = this.view?.webview;
     if (!webview) return;
     if (!this.webviewReady) {
@@ -542,6 +609,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     paths?: string[];
     file?: string;
     sessionId?: string;
+    planText?: string;
+    uris?: string[];
+    code?: string;
   }) {
     chatLog.debug('webview → extension', { type: msg.type });
     if (msg.type === 'log' && msg.text) {
@@ -572,6 +642,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       await this.onWebviewReady();
       return;
     }
+    if (msg.type === 'diagnosticPing') {
+      const online = await isAiServiceHealthy();
+      this.post({
+        type: 'diagnosticPong',
+        id: (msg as { id?: number }).id,
+        extensionOnline: online,
+        webviewReady: this.webviewReady,
+        serviceUrl: getServiceUrl(),
+        extensionVersion: this.extensionVersion,
+      });
+      return;
+    }
     if (msg.type === 'ping' || msg.type === 'requestAiStatus' || msg.type === 'requestInit') {
       if (!this.webviewReady) await this.onWebviewReady();
       else await this.pushPanelInit();
@@ -600,6 +682,26 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         vscode.ConfigurationTarget.Global
       );
       void this.refreshChatModels(provider);
+      return;
+    }
+    if (msg.type === 'insertCode') {
+      const code = (msg.code ?? msg.text) as string | undefined;
+      if (!code) return;
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        await editor.edit((eb) => eb.replace(editor.selection, code));
+      } else {
+        vscode.window.showWarningMessage('Rubynod: open a file in the editor to insert code.');
+      }
+      return;
+    }
+    if (msg.type === 'copyCode') {
+      const code = (msg.code ?? msg.text) as string | undefined;
+      if (code) await vscode.env.clipboard.writeText(code);
+      return;
+    }
+    if (msg.type === 'cancelPlan') {
+      this._latestPlan = undefined;
       return;
     }
     if (msg.type === 'addContext') {
@@ -636,6 +738,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.refreshChips();
       return;
     }
+    if (msg.type === 'approvePlan') {
+      const planText = (msg.planText as string | undefined) ?? this._latestPlan;
+      if (!planText) {
+        this.post({ type: 'error', message: 'No plan to approve. Run a plan-mode message first.' });
+        return;
+      }
+      this._latestPlan = undefined;
+      // Execute plan as agent mode with the plan injected as additional system context
+      void this.runAgent(
+        `Execute the following plan:\n\n${planText}`,
+        'agent',
+        msg.model as string | undefined,
+        msg.provider as string | undefined,
+        planText
+      );
+      return;
+    }
     if (msg.type === 'dropFiles' && msg.paths?.length) {
       const items: ContextAttachment[] = [];
       const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -645,6 +764,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (a) items.push(a);
       }
       this.addAttachments(items);
+      return;
+    }
+    if (msg.type === 'filesDropped' && Array.isArray(msg.uris) && msg.uris.length) {
+      const { loadDroppedUris } = await import('./file-attachments');
+      const { checkSensitiveAttachments } = await import('./attachment-security');
+      this.post({ type: 'attachmentsLoading' });
+      try {
+        const loaded = await loadDroppedUris(msg.uris as string[]);
+        const safe = await checkSensitiveAttachments(loaded);
+        if (safe.length) this.addAttachments(safe);
+      } finally {
+        this.post({ type: 'attachmentsLoadingDone' });
+      }
       return;
     }
     if (msg.type === 'addOpenFiles') {
@@ -729,6 +861,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.history.append(entry);
   }
 
+  /** Exposed as `runAgent` for plan-approve execute path. */
+  async runAgent(
+    text: string,
+    mode: AgentMode,
+    modelOverride?: string,
+    providerOverride?: string,
+    planContext?: string
+  ) {
+    const prev = this.mode;
+    this.mode = mode;
+    this._pendingPlanContext = planContext;
+    try {
+      await this.run(text, modelOverride, providerOverride);
+    } finally {
+      this.mode = prev;
+      this._pendingPlanContext = undefined;
+    }
+  }
+
   async run(text: string, modelOverride?: string, providerOverride?: string) {
     if (this.running) return;
 
@@ -795,6 +946,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         });
       }
       contextItems = [...contextMap.values()];
+      // Inject plan text as highest-priority context for plan-approve execution
+      if (this._pendingPlanContext) {
+        contextItems.unshift({
+          type: 'rules',
+          label: 'Approved plan',
+          content: `## Approved plan to execute\n\n${this._pendingPlanContext}`,
+        });
+      }
       chatLog.debug('Context attachments', {
         count: contextItems.length,
         labels: contextItems.map((c) => c.label),
@@ -934,8 +1093,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         if (event.type === 'diff') {
-          const d = event.data as { file: string; oldContent: string; newContent: string };
-          this.post({ type: 'diff', file: d.file });
+          const d = event.data as { file: string; oldContent: string; newContent: string; added?: number; removed?: number };
+          this.post({ type: 'diff', file: d.file, added: d.added, removed: d.removed });
           void addPendingDiff(d).then(() => this.refreshPendingDiffs());
           const note =
             `\n\n**Proposed change:** \`${d.file}\` — **Accept** applies it, **Reject** discards it (nothing is saved until you Accept).\n`;
@@ -947,6 +1106,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           const d = event.data as { content: string };
           this.turnAssistantText += '\n\n---\n**Plan**\n\n' + d.content;
           this.post({ type: 'text', text: '\n\n---\n**Plan**\n\n' + d.content });
+          // Store latest plan text so the "Approve plan" button can execute it
+          this._latestPlan = d.content;
+          this.post({ type: 'planReady', planText: d.content });
         }
 
         if (event.type === 'done') {
@@ -1010,7 +1172,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (errorMessage) {
         this.history.append({ kind: 'error', message: errorMessage, ts: Date.now() });
       }
-      this.post({ type: 'runEnd' });
+      // Estimate token usage from context attachments (3 chars ≈ 1 token)
+      const ctxChars = (contextItems ?? []).reduce((s, a) => s + (a.content?.length ?? 0), 0);
+      const estimatedTokens = Math.round(ctxChars / 3);
+      this.post({ type: 'runEnd', tokensUsed: estimatedTokens || undefined });
       this.running = false;
       clearContext();
       this.post({ type: 'chips', items: [] });

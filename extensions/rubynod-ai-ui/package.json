@@ -2,7 +2,7 @@
   "name": "rubynod-ai-ui",
   "displayName": "Rubynod AI",
   "description": "Open-source AI coding assistant: agent chat, Ollama & cloud models, file edits, diff review, @ context, indexing, inline edit & tab complete.",
-  "version": "0.1.56",
+  "version": "0.1.67",
   "publisher": "RohitPatil",
   "license": "MIT",
   "icon": "media/icon-128.png",
@@ -81,6 +81,10 @@
       {
         "command": "rubynod.reloadChatWebview",
         "title": "Rubynod: Reload Chat Panel"
+      },
+      {
+        "command": "rubynod.diagnoseConnection",
+        "title": "Rubynod: Diagnose Connection"
       },
       {
         "command": "rubynod.clearChat",
@@ -174,6 +178,14 @@
       {
         "command": "rubynod.undoCheckpoint",
         "title": "Rubynod: Undo Last Checkpoint"
+      },
+      {
+        "command": "rubynod.fixWithRubynod",
+        "title": "Rubynod: Fix Error with Rubynod AI"
+      },
+      {
+        "command": "rubynod.testRetrieval",
+        "title": "Rubynod: Test Codebase Retrieval"
       }
     ],
     "menus": {
@@ -182,26 +194,6 @@
           "command": "rubynod.openSettings",
           "when": "view == rubynod.chatView",
           "group": "navigation@1"
-        },
-        {
-          "command": "rubynod.openIndexingSettings",
-          "when": "view == rubynod.chatView",
-          "group": "navigation@2"
-        },
-        {
-          "command": "rubynod.openRulesConfig",
-          "when": "view == rubynod.chatView",
-          "group": "navigation@3"
-        },
-        {
-          "command": "rubynod.openSkillsConfig",
-          "when": "view == rubynod.chatView",
-          "group": "navigation@4"
-        },
-        {
-          "command": "rubynod.openMcpConfig",
-          "when": "view == rubynod.chatView",
-          "group": "navigation@5"
         },
         {
           "command": "rubynod.newChat",
@@ -492,6 +484,13 @@
             "markdownDescription": "**YOLO mode**: auto-approve terminal + file writes. Use only in trusted repos.",
             "order": 42
           },
+          "rubynod.agent.terminalAllowlist": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": ["npm", "npx", "pnpm", "yarn", "bun", "node", "tsc", "git", "ls", "cat", "echo", "mkdir", "cp", "mv", "python", "python3", "pip", "pip3", "cargo", "go", "make", "curl", "gh"],
+            "markdownDescription": "Commands (prefix match) allowed without safety confirmation. Only applies when `autoApproveTerminal` is false. Add project-specific tools here.",
+            "order": 43.5
+          },
           "rubynod.agent.maxTurns": {
             "type": "number",
             "default": 25,
@@ -601,6 +600,18 @@
             "markdownDescription": "Automatically attach relevant indexed code to every agent message (semantic search over your repo).",
             "order": 52
           },
+          "rubynod.chat.autoContext": {
+            "type": "string",
+            "enum": ["coding", "minimal", "off"],
+            "enumDescriptions": [
+              "Active file + diagnostics + auto index context every turn (recommended)",
+              "Auto index retrieval only — no active file or diagnostics",
+              "No automatic context — only explicit @ attachments"
+            ],
+            "default": "coding",
+            "markdownDescription": "Automatic context mode per agent turn.",
+            "order": 52.5
+          },
           "rubynod.index.maxAutoContextChunks": {
             "type": "number",
             "default": 8,
@@ -664,6 +675,19 @@
             "default": true,
             "description": "Use local embeddings for @codebase (no cloud embedding API).",
             "order": 61
+          },
+          "rubynod.index.embeddingProvider": {
+            "type": "string",
+            "enum": ["ollama", "hash"],
+            "default": "ollama",
+            "markdownDescription": "Embedding backend for codebase retrieval. **ollama** uses `nomic-embed-text` (recommended); **hash** uses fast local bag-of-words (no semantic understanding).",
+            "order": 62
+          },
+          "rubynod.index.embeddingModel": {
+            "type": "string",
+            "default": "nomic-embed-text",
+            "markdownDescription": "Ollama embedding model (`ollama pull nomic-embed-text`). Only used when `embeddingProvider` is `ollama`.",
+            "order": 63
           }
         }
       },
@@ -706,7 +730,7 @@
     ]
   },
   "scripts": {
-    "build": "tsc -p ./",
+    "build": "tsc -p ./ && node ../../scripts/verify-webview-syntax.mjs",
     "watch": "tsc -watch -p ./",
     "package": "vsce package --no-dependencies"
   },

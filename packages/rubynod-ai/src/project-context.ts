@@ -191,24 +191,57 @@ export function shouldRequireAgentTools(message: string): boolean {
   );
 }
 
+/** User wants to install deps already declared in package.json (not add new packages one-by-one). */
+export function isNpmInstallIntent(message: string): boolean {
+  const m = message.toLowerCase();
+  if (/\bnpm\s+ci\b/.test(m)) return true;
+  if (/\binstall\b/.test(m) && /\bpackage\.json\b/.test(m)) return true;
+  if (/\b(install|setup|set up|bootstrap)\b/.test(m) && /\b(packages?|dependencies|deps|node_modules)\b/.test(m)) {
+    return true;
+  }
+  return /\b(install|setup|set up)\b/.test(m) && /\b(project|workspace|repo)\b/.test(m) && /\b(packages?|dependencies|deps)\b/.test(m);
+}
+
+/** Steer the model away from per-package `npm install --save-dev` loops. */
+export function buildNpmInstallDirective(workspaceRoot: string): string {
+  const hasLock = fs.existsSync(path.join(workspaceRoot, 'package-lock.json'));
+  return (
+    `### npm install (this turn)\n` +
+    `- User wants dependencies from package.json installed — not to add new packages one-by-one.\n` +
+    `- From the workspace root, run **\`npm install\`** (installs all dependencies and devDependencies; respects package-lock.json when present).\n` +
+    `- For a clean reproducible install (CI / fresh clone), use **\`npm ci\`** when package-lock.json exists.\n` +
+    `- Do **NOT** loop with jq or run \`npm install --save-dev <name>\` for each key in package.json.\n` +
+    `- \`@package.json\` in chat is a file reference — the path is \`package.json\`, not a file named \`@package.json\`.\n` +
+    `- npm workspaces monorepos: one \`npm install\` at the repo root installs all workspace packages.\n` +
+    `- Flow: \`inspect_workspace\` if unsure → state \`npm install\` in chat → \`run_terminal\` after user approves.` +
+    (hasLock ? '\n- package-lock.json is present — prefer `npm install` or `npm ci`, not ad-hoc per-package installs.' : '')
+  );
+}
+
 /** Tell the model to edit only the @mentioned file(s), not dump package.json in chat. */
-export function buildFocusedFileDirective(message: string): string | null {
+export function buildFocusedFileDirective(message: string, workspaceRoot: string): string | null {
   const files = extractMentionedFilePaths(message);
   if (!files.length) return null;
+  if (isNpmInstallIntent(message) && files.every((f) => f === 'package.json')) {
+    return buildNpmInstallDirective(workspaceRoot);
+  }
   return (
     `### User target file(s)\n` +
     files.map((f) => `- ${f}`).join('\n') +
     '\n\nRules for this turn:\n' +
     `- Edit ONLY these file(s) unless the user also named another path.\n` +
-    `- Call read_file('${files[0]}') first, then search_replace to add APIs/routes.\n` +
+    `- Call read_file('${files[0]}') first, then search_replace (or write_file) to apply edits.\n` +
+    `- When the user asks to improve, fix, update, or change the file: edit via tools — do NOT paste a full replacement in chat.\n` +
+    `- Do NOT output [tool_calls], tool JSON, or bare \`{\` in the chat — use native tool calls only.\n` +
     `- Do NOT paste or rewrite package.json in the chat response.\n` +
     `- Do NOT write_file('package.json') unless the user explicitly asked for package.json.\n` +
-    `- Answer briefly after tools run (e.g. "Added GET /db/users to server.js").`
+    `- Answer briefly after tools run (e.g. "Added user details to logger.js").`
   );
 }
 
-/** Block writes to package.json when the user @mentioned a different file only. */
+/** Block writes to package.json when the user @mentioned a different file only (not install-deps turns). */
 export function isWritePathAllowedForMessage(userMessage: string, relPath: string): boolean {
+  if (isNpmInstallIntent(userMessage)) return true;
   const focused = extractMentionedFilePaths(userMessage);
   if (!focused.length) return true;
   const p = normalizeToolFilePath(relPath);
@@ -219,6 +252,7 @@ export function isWritePathAllowedForMessage(userMessage: string, relPath: strin
 
 /** Whether to attach workspace snapshot to the user message automatically. */
 export function shouldAttachWorkspaceSetup(message: string): boolean {
+  if (isNpmInstallIntent(message)) return true;
   if (hasExplicitFileMention(message)) return false;
   const m = message.toLowerCase();
   return (

@@ -11,7 +11,7 @@ import {
 import type { ContextAttachment } from './context';
 import { getBridgePort } from './bridge-server';
 import { agentLog } from './logger';
-import { ensureRubynodReady } from './rubynod-ready';
+import { ensureRubynodReady, isBridgeReady } from './rubynod-ready';
 
 export type AgentMode = 'agent' | 'plan' | 'ask' | 'debug';
 
@@ -35,7 +35,17 @@ export async function* streamAgent(opts: {
   /** Per-message provider override (ollama, openai, anthropic, openrouter). */
   provider?: string;
 }): AsyncGenerator<{ type: string; data: unknown }> {
-  await ensureRubynodReady();
+  const ready = await ensureRubynodReady();
+  if (!ready) {
+    throw new Error(
+      'Rubynod AI service could not start. ' +
+      'Cmd+Shift+P → Rubynod: Start AI Service, then try again.'
+    );
+  }
+  if (!isBridgeReady()) {
+    agentLog.warn('Bridge not registered — IDE tools (file read/write, terminal) may not work. Retrying…');
+    await ensureRubynodReady();
+  }
   agentLog.info('Agent run started', {
     mode: opts.mode,
     model: opts.model,

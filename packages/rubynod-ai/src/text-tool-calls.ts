@@ -609,7 +609,9 @@ export function mightBeInlineToolJson(text: string): boolean {
 export function mightBeLeakedToolSyntax(text: string): boolean {
   const t = text.trim();
   if (/^json\s*$/i.test(t)) return true;
+  if (/\[tool[_\s-]?calls?\]/i.test(text)) return true;
   if (/^```json\s*$/i.test(t)) return true;
+  if (t.startsWith('{') && (/^\{\s*$/.test(t.trim()) || (t.length < 500 && !/\}/.test(t)))) return true;
   if (/```json/i.test(text) && /\{\s*"name/i.test(text)) return true;
   if (mightBeInlineToolJson(text)) return true;
   if (/<\|python_tag\|>/i.test(text)) return true;

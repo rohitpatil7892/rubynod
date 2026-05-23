@@ -14,6 +14,7 @@ export interface RubynodClientSettings {
   maxFileContextChars: number;
   maxContextAttachments: number;
   autoIndexContext: boolean;
+  autoContextMode: 'coding' | 'minimal' | 'off';
   maxAutoContextChunks: number;
   maxAutoContextChars: number;
   contextCacheTtlSec: number;
@@ -51,7 +52,7 @@ export function getProvider(): string {
 }
 
 export function getModel(): string {
-  return cfg('models.chatModel', 'llama3.2');
+  return cfg('models.chatModel', 'qwen2.5-coder');
 }
 
 export function getOllamaHost(): string {
@@ -181,6 +182,22 @@ export function getMaxAutoContextChars(): number {
   return cfg('index.maxAutoContextChars', 24_000);
 }
 
+export function getEmbeddingProvider(): 'ollama' | 'hash' {
+  return cfg<'ollama' | 'hash'>('index.embeddingProvider', 'ollama');
+}
+
+export function getAutoContextMode(): 'coding' | 'minimal' | 'off' {
+  return cfg<'coding' | 'minimal' | 'off'>('chat.autoContext', 'coding');
+}
+
+export function getTerminalAllowlist(): string[] {
+  return cfg<string[]>('agent.terminalAllowlist', ['npm', 'npx', 'pnpm', 'yarn', 'bun', 'node', 'tsc', 'git', 'ls', 'cat', 'echo', 'mkdir', 'cp', 'mv', 'python', 'python3', 'pip', 'pip3', 'cargo', 'go', 'make', 'curl', 'gh']);
+}
+
+export function getEmbeddingModel(): string {
+  return cfg('index.embeddingModel', 'nomic-embed-text');
+}
+
 export function getClientSettings(): RubynodClientSettings {
   return {
     provider: getProvider(),
@@ -195,6 +212,7 @@ export function getClientSettings(): RubynodClientSettings {
     maxFileContextChars: getMaxFileContextChars(),
     maxContextAttachments: getMaxContextAttachments(),
     autoIndexContext: isAutoIndexContext(),
+    autoContextMode: getAutoContextMode(),
     maxAutoContextChunks: getMaxAutoContextChunks(),
     maxAutoContextChars: getMaxAutoContextChars(),
     contextCacheTtlSec: getContextCacheTtlSec(),

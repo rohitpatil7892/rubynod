@@ -4,12 +4,18 @@ import fs from 'node:fs';
 import type { IndexChunk, IndexSymbol, IndexStats, SearchResult } from './types.js';
 import { embedText, cosineSimilarity } from './embeddings.js';
 import { getSqlEngine } from './sql-init.js';
+import type { EmbeddingProvider } from './embedding-provider.js';
 
 export class IndexStore {
   private db: Database;
   private readonly dbPath: string;
   private dirty = false;
   private batchDepth = 0;
+  private embeddingProvider: EmbeddingProvider | null = null;
+
+  setEmbeddingProvider(provider: EmbeddingProvider | null): void {
+    this.embeddingProvider = provider;
+  }
 
   constructor(workspaceRoot: string) {
     const dir = path.join(workspaceRoot, '.rubynod', 'index');
@@ -131,6 +137,20 @@ export class IndexStore {
     this.flush();
   }
 
+  async upsertChunksWithEmbeddings(chunks: IndexChunk[]): Promise<void> {
+    if (!this.embeddingProvider || chunks.length === 0) {
+      this.upsertChunks(chunks);
+      return;
+    }
+    const texts = chunks.map((c) => c.content);
+    const embeddings = await this.embeddingProvider.embedBatch(texts);
+    const enriched = chunks.map((c, i) => ({
+      ...c,
+      embedding: embeddings[i]?.length ? embeddings[i] : (c.embedding ?? embedText(c.content)),
+    }));
+    this.upsertChunks(enriched);
+  }
+
   upsertChunks(chunks: IndexChunk[]): void {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO chunks (id, path, start_line, end_line, content, symbol_name, symbol_kind, embedding)
@@ -227,20 +247,33 @@ export class IndexStore {
     return out;
   }
 
-  hybridSearch(query: string, limit = 12, candidateLimit = 400): SearchResult[] {
+  private isIdentifierQuery(query: string): boolean {
+    // Looks like a CamelCase identifier, snake_case, or file.ts reference
+    return /[A-Z][a-z]|_[a-z]|\.[a-z]{1,5}$/.test(query) && !/\s{2,}/.test(query);
+  }
+
+  hybridSearch(query: string, limit = 12, candidateLimit = 400, queryEmbedding?: number[]): SearchResult[] {
     const text = this.textSearch(query, candidateLimit);
-    const semantic = this.semanticSearch(query, limit * 3, text);
+    const semantic = this.semanticSearch(query, limit * 3, text, queryEmbedding);
     const symbolHits = this.searchSymbols(query, 8);
+
+    const isIdentifier = this.isIdentifierQuery(query);
+    // For identifier queries FTS wins; for NL queries semantic wins
+    const ftsBoost = isIdentifier ? 1.15 : 0.9;
+    const semBoost = isIdentifier ? 0.9 : 1.1;
 
     const merged = new Map<string, SearchResult>();
     const key = (r: SearchResult) => `${r.path}:${r.startLine}`;
 
-    for (const r of semantic) merged.set(key(r), r);
+    for (const r of semantic) {
+      merged.set(key(r), { ...r, score: r.score * semBoost });
+    }
     for (const r of text) {
       const k = key(r);
+      const boosted = r.score * ftsBoost;
       const ex = merged.get(k);
-      if (ex) ex.score = Math.max(ex.score, r.score);
-      else merged.set(k, r);
+      if (ex) ex.score = Math.max(ex.score, boosted);
+      else merged.set(k, { ...r, score: boosted });
     }
 
     for (const s of symbolHits) {
@@ -269,9 +302,10 @@ export class IndexStore {
   private semanticSearch(
     query: string,
     limit: number,
-    textCandidates: SearchResult[]
+    textCandidates: SearchResult[],
+    precomputedEmbedding?: number[]
   ): SearchResult[] {
-    const queryEmbed = embedText(query);
+    const queryEmbed = precomputedEmbedding?.length ? precomputedEmbedding : embedText(query);
     const results: SearchResult[] = [];
 
     const scoreRow = (row: {

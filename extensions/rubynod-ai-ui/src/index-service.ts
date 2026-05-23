@@ -9,6 +9,8 @@ import {
   isAutoIndexOnOpen,
   isAutoIndexOnSave,
   isLazyStart,
+  getEmbeddingProvider,
+  getEmbeddingModel,
 } from './settings';
 import { ensureRubynodReady } from './rubynod-ready';
 
@@ -17,6 +19,11 @@ export class IndexService implements vscode.Disposable {
   private pollTimer?: ReturnType<typeof setInterval>;
   private pendingFiles = new Map<string, ReturnType<typeof setTimeout>>();
   private saveDebounceMs: number;
+  private onIndexStatus?: (ready: boolean, indexing: boolean) => void;
+
+  setIndexStatusCallback(cb: (ready: boolean, indexing: boolean) => void): void {
+    this.onIndexStatus = cb;
+  }
 
   constructor() {
     this.statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 90);
@@ -36,12 +43,47 @@ export class IndexService implements vscode.Disposable {
         if (doc.uri.scheme === 'file' && isAutoIndexOnSave()) {
           this.scheduleUpdate(doc);
         }
+      }),
+      // File watcher for changes without explicit save (renames, external edits)
+      vscode.workspace.createFileSystemWatcher('**/*', false, false, false).onDidChange((uri) => {
+        if (uri.scheme === 'file' && isAutoIndexOnSave()) {
+          const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === uri.fsPath);
+          if (doc) this.scheduleUpdate(doc);
+        }
+      }),
+      // Multi-root: index new workspace folders when added
+      vscode.workspace.onDidChangeWorkspaceFolders((event) => {
+        for (const folder of event.added) {
+          if (isAutoIndexOnOpen()) {
+            void this.buildIndexForRoot(folder.uri.fsPath, true);
+          }
+        }
       })
     );
 
     const pollMs = getStatusPollIntervalMs();
     this.pollTimer = setInterval(() => void this.refreshStatus(), pollMs);
     void this.refreshStatus();
+  }
+
+  async buildIndexForRoot(workspaceRoot: string, silent = false): Promise<void> {
+    const body = {
+      workspaceRoot,
+      concurrency: getIndexBuildConcurrency(),
+      searchCandidateLimit: getSearchCandidateLimit(),
+    };
+    try {
+      await fetch(`${getServiceUrl()}/index/build`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!silent) {
+        await this.refreshStatus();
+      }
+    } catch {
+      // Non-fatal if service not ready
+    }
   }
 
   private scheduleUpdate(doc: vscode.TextDocument): void {
@@ -76,10 +118,12 @@ export class IndexService implements vscode.Disposable {
     };
 
     const run = async () => {
+      const embeddingProvider = getEmbeddingProvider();
+      const embeddingModel = getEmbeddingModel();
       const res = await fetch(`${getServiceUrl()}/index/build`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, embeddingProvider, embeddingModel }),
       });
       const json = (await res.json()) as {
         stats?: {
@@ -183,16 +227,19 @@ export class IndexService implements vscode.Disposable {
       }
       if (s.indexing) {
         this.setStatus('$(sync~spin) Indexing…', true);
+        this.onIndexStatus?.(false, true);
         const fastPoll = getStatusPollIntervalMs() / 3;
         if (this.pollTimer) clearInterval(this.pollTimer);
         this.pollTimer = setInterval(() => void this.refreshStatus(), Math.max(2000, fastPoll));
       } else if (json.ready) {
         this.setStatus(`$(database) Index: ${s.chunkCount} chunks`, false);
+        this.onIndexStatus?.(true, false);
         const pollMs = getStatusPollIntervalMs();
         if (this.pollTimer) clearInterval(this.pollTimer);
         this.pollTimer = setInterval(() => void this.refreshStatus(), pollMs);
       } else {
         this.setStatus('$(warning) Index empty', true);
+        this.onIndexStatus?.(false, false);
       }
     } catch {
       this.setStatus('$(error) Index offline', true);

@@ -5,6 +5,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { CodebaseIndexer } from '@rubynod/index';
+import { OllamaEmbeddingProvider, HashEmbeddingProvider } from '@rubynod/index';
 import { McpHub } from '@rubynod/mcp';
 import {
   runAgent,
@@ -22,6 +23,7 @@ import { createCloudJob, getCloudJob, listCloudJobs, runCloudJob } from './cloud
 import { buildSystemPrompt, getSkillBody } from './rules.js';
 import { queueIndexBuild } from './index-queue.js';
 import { getCachedContextPack, setCachedContextPack } from './context-cache.js';
+import { saveWorkspaceSummary } from './workspace-summary.js';
 import { appendMemory, loadMemories } from './memories.js';
 import {
   checkOllamaHealth,
@@ -40,6 +42,21 @@ app.use(express.json({ limit: '10mb' }));
 
 const indexers = new Map<string, CodebaseIndexer>();
 
+async function createEmbeddingProvider() {
+  const provider = process.env.RUBYNOD_EMBEDDING_PROVIDER ?? 'ollama';
+  const model = process.env.RUBYNOD_EMBEDDING_MODEL ?? 'nomic-embed-text';
+  const host = process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434';
+  if (provider === 'ollama') {
+    const available = await OllamaEmbeddingProvider.isAvailable(model, host);
+    if (available) {
+      serverLog.info('Using Ollama embeddings', { model, host });
+      return new OllamaEmbeddingProvider(model, host);
+    }
+    serverLog.warn('Ollama embed model not available; falling back to hash embeddings', { model, host });
+  }
+  return new HashEmbeddingProvider();
+}
+
 function getIndexer(workspaceRoot: string): CodebaseIndexer {
   let idx = indexers.get(workspaceRoot);
   if (!idx) {
@@ -48,6 +65,8 @@ function getIndexer(workspaceRoot: string): CodebaseIndexer {
     const candidates = Number(process.env.RUBYNOD_SEARCH_CANDIDATES ?? 400);
     idx.setPerformanceOpts({ buildConcurrency: concurrency, searchCandidateLimit: candidates });
     indexers.set(workspaceRoot, idx);
+    // Wire embedding provider (async, best-effort)
+    createEmbeddingProvider().then((ep) => idx!.setEmbeddingProvider(ep)).catch(() => {});
     if (process.env.RUBYNOD_INDEX_ON_START === '1') {
       queueIndexBuild(workspaceRoot, idx).catch(console.error);
     }
@@ -109,10 +128,12 @@ app.post('/bridge/call', async (req, res) => {
 });
 
 app.post('/index/build', async (req, res) => {
-  const { workspaceRoot, concurrency, searchCandidateLimit } = req.body as {
+  const { workspaceRoot, concurrency, searchCandidateLimit, embeddingProvider, embeddingModel } = req.body as {
     workspaceRoot: string;
     concurrency?: number;
     searchCandidateLimit?: number;
+    embeddingProvider?: 'ollama' | 'hash';
+    embeddingModel?: string;
   };
   const idx = getIndexer(workspaceRoot);
   if (concurrency || searchCandidateLimit) {
@@ -121,26 +142,74 @@ app.post('/index/build', async (req, res) => {
       searchCandidateLimit: searchCandidateLimit,
     });
   }
+  // Override embedding provider if specified per-build-request
+  if (embeddingProvider) {
+    const host = process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434';
+    const model = embeddingModel ?? 'nomic-embed-text';
+    if (embeddingProvider === 'ollama') {
+      const available = await OllamaEmbeddingProvider.isAvailable(model, host);
+      idx.setEmbeddingProvider(available ? new OllamaEmbeddingProvider(model, host) : new HashEmbeddingProvider());
+    } else {
+      idx.setEmbeddingProvider(new HashEmbeddingProvider());
+    }
+  }
+  if (idx.needsEmbeddingRebuild()) {
+    serverLog.info('Embedding provider changed — forcing full index rebuild', { workspaceRoot });
+  }
   const stats = await queueIndexBuild(workspaceRoot, idx, (p) => {
     broadcastWs({ type: 'index_progress', data: p });
   });
+  // Generate workspace summary after index build
+  try { saveWorkspaceSummary(workspaceRoot); } catch { /* non-critical */ }
   res.json({ ok: true, stats });
 });
 
 app.get('/index/status', (req, res) => {
   const workspaceRoot = (req.query.workspaceRoot as string) ?? process.cwd();
   const idx = getIndexer(workspaceRoot);
-  res.json({ stats: idx.getStatus(), ready: idx.isReady() });
+  const embeddingProvider = process.env.RUBYNOD_EMBEDDING_PROVIDER ?? 'ollama';
+  const embeddingModel = process.env.RUBYNOD_EMBEDDING_MODEL ?? 'nomic-embed-text';
+  res.json({
+    stats: idx.getStatus(),
+    ready: idx.isReady(),
+    embeddingProvider,
+    embeddingModel,
+    needsEmbeddingRebuild: idx.needsEmbeddingRebuild(),
+  });
 });
 
-app.post('/index/search', (req, res) => {
+app.post('/index/search', async (req, res) => {
   const { workspaceRoot, query, limit } = req.body as {
     workspaceRoot: string;
     query: string;
     limit?: number;
   };
   const idx = getIndexer(workspaceRoot);
-  res.json({ results: idx.search(query, limit) });
+  const results = await idx.searchAsync(query, limit);
+  res.json({ results });
+});
+
+/** Debug endpoint: test retrieval quality for a query and return top chunks. */
+app.post('/index/test-retrieval', async (req, res) => {
+  const { workspaceRoot, query } = req.body as { workspaceRoot: string; query: string };
+  const idx = getIndexer(workspaceRoot);
+  if (!idx.isReady()) {
+    res.status(503).json({ error: 'Index not ready — build the index first.' });
+    return;
+  }
+  const results = await idx.searchAsync(query, 5);
+  res.json({
+    query,
+    count: results.length,
+    results: results.map((r) => ({
+      path: r.path,
+      startLine: r.startLine,
+      endLine: r.endLine,
+      score: r.score,
+      matchType: r.matchType,
+      preview: r.content.slice(0, 300),
+    })),
+  });
 });
 
 app.post('/index/context', (req, res) => {

@@ -1,5 +1,16 @@
 # Agent workflow (files & terminal)
 
+## Tools-first rule (most important)
+
+Always call tools — **never explain steps** when you can act:
+
+- If asked to create a file: call `write_file` with complete contents.
+- If asked to edit a file: call `read_file` first, then `search_replace` or `write_file`.
+- If asked to run a command: call `run_terminal` (after stating the command in your reply).
+- Do **not** output bullet-point instructions or markdown steps instead of calling tools.
+- One `write_file` call per file per turn — full contents only, no partial writes.
+- After writing a file, call `read_lints` on that path to check for errors.
+
 ## Before creating or overwriting files
 
 1. Check what already exists: `inspect_workspace`, `read_file`, `glob`, or `list_dir`.

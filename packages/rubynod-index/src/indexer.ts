@@ -5,6 +5,8 @@ import { walkWorkspace } from './chunker.js';
 import { chunkFileSmart } from './symbol-chunker.js';
 import { IndexStore } from './store.js';
 import { buildContextPack } from './context-pack.js';
+import type { EmbeddingProvider, EmbeddingMeta } from './embedding-provider.js';
+import { embeddingMetaKey } from './embedding-provider.js';
 
 const DEFAULT_BUILD_CONCURRENCY = Number(process.env.RUBYNOD_INDEX_CONCURRENCY ?? 8);
 const MAX_FILE_BYTES = 512_000;
@@ -16,6 +18,7 @@ export class CodebaseIndexer {
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private buildConcurrency = DEFAULT_BUILD_CONCURRENCY;
   private searchCandidateLimit = Number(process.env.RUBYNOD_SEARCH_CANDIDATES ?? 400);
+  private embeddingProvider: EmbeddingProvider | null = null;
   private lastBuildDiagnostics = {
     filesDiscovered: 0,
     filesSkippedLarge: 0,
@@ -26,6 +29,40 @@ export class CodebaseIndexer {
   constructor(workspaceRoot: string) {
     this.workspaceRoot = path.resolve(workspaceRoot);
     this.store = new IndexStore(this.workspaceRoot);
+  }
+
+  setEmbeddingProvider(provider: EmbeddingProvider | null): void {
+    this.embeddingProvider = provider;
+    this.store.setEmbeddingProvider(provider);
+  }
+
+  /**
+   * Check if the stored embedding meta matches the current provider.
+   * If not, a full rebuild is needed.
+   */
+  needsEmbeddingRebuild(): boolean {
+    if (!this.embeddingProvider) return false;
+    const raw = this.store.getMeta(embeddingMetaKey());
+    if (!raw) return true;
+    try {
+      const meta = JSON.parse(raw) as EmbeddingMeta;
+      return meta.provider !== this.embeddingProvider.name ||
+        meta.model !== (this.embeddingProvider.name === 'ollama' ? (this.embeddingProvider as { model?: string }).model ?? '' : 'hash');
+    } catch {
+      return true;
+    }
+  }
+
+  private saveEmbeddingMeta(): void {
+    if (!this.embeddingProvider) return;
+    const meta: EmbeddingMeta = {
+      provider: this.embeddingProvider.name as EmbeddingMeta['provider'],
+      model: this.embeddingProvider.name === 'ollama'
+        ? ((this.embeddingProvider as unknown as { model?: string }).model ?? 'nomic-embed-text')
+        : 'hash',
+      dims: this.embeddingProvider.dims,
+    };
+    this.store.setMeta(embeddingMetaKey(), JSON.stringify(meta));
   }
 
   getStatus(): IndexStats {
@@ -80,7 +117,7 @@ export class CodebaseIndexer {
           else if (item.kind === 'error') this.lastBuildDiagnostics.filesSkippedError++;
           else if (item.kind === 'indexed') {
             this.store.removePath(item.rel);
-            this.store.upsertChunks(item.chunks);
+            await this.store.upsertChunksWithEmbeddings(item.chunks);
             this.store.upsertFile(item.rel, item.mtimeMs, item.size);
           }
         }
@@ -95,6 +132,7 @@ export class CodebaseIndexer {
 
       const now = new Date().toISOString();
       this.store.setMeta('lastIndexedAt', now);
+      this.saveEmbeddingMeta();
     } finally {
       this.store.endBatch();
       this.indexing = false;
@@ -142,7 +180,7 @@ export class CodebaseIndexer {
     const item = await this.prepareFile(abs);
     if (!item || item.kind !== 'indexed') return;
     this.store.removePath(item.rel);
-    this.store.upsertChunks(item.chunks);
+    await this.store.upsertChunksWithEmbeddings(item.chunks);
     this.store.upsertFile(item.rel, item.mtimeMs, item.size);
   }
 
@@ -170,11 +208,28 @@ export class CodebaseIndexer {
     if (symbols.length) this.store.upsertSymbols(symbols);
   }
 
+  async searchAsync(query: string, limit?: number): Promise<SearchResult[]> {
+    let queryEmbedding: number[] | undefined;
+    if (this.embeddingProvider) {
+      const emb = await this.embeddingProvider.embed(query);
+      if (emb.length) queryEmbedding = emb;
+    }
+    return this.store.hybridSearch(query, limit ?? 12, this.searchCandidateLimit, queryEmbedding);
+  }
+
   search(query: string, limit?: number): SearchResult[] {
     return this.store.hybridSearch(query, limit ?? 12, this.searchCandidateLimit);
   }
 
-  /** Build ready-to-send context for the AI from the user query */
+  /** Build ready-to-send context for the AI from the user query (async, uses real embeddings) */
+  async getContextPackAsync(query: string, opts?: { limit?: number; maxChars?: number }): Promise<ContextPack> {
+    const limit = opts?.limit ?? 10;
+    const chunks = await this.searchAsync(query, limit);
+    const symbols = this.store.searchSymbols(query, 12);
+    return buildContextPack(query, chunks, symbols, { maxChars: opts?.maxChars });
+  }
+
+  /** Sync fallback — used when async path is not available */
   getContextPack(query: string, opts?: { limit?: number; maxChars?: number }): ContextPack {
     const limit = opts?.limit ?? 10;
     const chunks = this.search(query, limit);

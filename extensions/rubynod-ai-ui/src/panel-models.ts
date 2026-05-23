@@ -10,6 +10,8 @@ export type ResolvedChatModels = {
   provider: ChatProviderId;
   models: string[];
   modelLabels?: Record<string, string>;
+  /** Models that lack tool-calling support. */
+  noToolModels?: string[];
   current: string;
   error?: string;
 };
@@ -23,6 +25,7 @@ export async function resolveChatModelsForProvider(
   const configured = getModel();
   let models: string[] = [];
   let modelLabels: Record<string, string> | undefined;
+  let noToolModels: string[] = [];
   let picked = configured;
   let error: string | undefined;
 
@@ -44,6 +47,7 @@ export async function resolveChatModelsForProvider(
     modelLabels = Object.fromEntries(
       ollama.models.map((m) => [m.name, labelOllamaModelForPicker(m)])
     );
+    noToolModels = ollama.models.filter((m) => m.supportsTools === false).map((m) => m.name);
     error = ollama.error;
     const suggested = ollama.suggested;
     const currentEntry = ollama.models.find((m) => m.name === configured);
@@ -68,7 +72,7 @@ export async function resolveChatModelsForProvider(
     picked = models.includes(configured) ? configured : (models[0] ?? configured);
   }
 
-  return { provider, models, modelLabels, current: picked, error };
+  return { provider, models, modelLabels, noToolModels, current: picked, error };
 }
 
 export { CHAT_PROVIDERS };

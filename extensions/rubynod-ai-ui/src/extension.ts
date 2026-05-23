@@ -14,16 +14,16 @@ import { setChatProviderRef, getChatProviderRef } from './chat-provider';
 import { IndexService } from './index-service';
 import { UpdateChecker } from './update-checker';
 import { OllamaConnect } from './ollama-connect';
-import { killStaleProcessOnAiPort, startAiService, stopAiService } from './ai-service';
-import { configureRubynod, ensureRubynodReady } from './rubynod-ready';
-import { extLog, getRubynodLogLevel, showRubynodOutput } from './logger';
 import {
-  openAllRubynodSettings,
-  openIndexingSettings,
-  openMcpConfig,
-  openRulesConfig,
-  openSkillsConfig,
-} from './agent-config';
+  isAiServiceHealthy,
+  killStaleProcessOnAiPort,
+  startAiService,
+  stopAiService,
+} from './ai-service';
+import { configureRubynod, ensureRubynodReady, isBridgeReady } from './rubynod-ready';
+import { extLog, getRubynodLogLevel, showRubynodOutput } from './logger';
+import { openIndexingSettings, openMcpConfig, openRulesConfig, openSkillsConfig } from './agent-config';
+import { openRubynodSettingsPanel } from './settings-panel';
 
 let chatProvider: ChatViewProvider;
 let indexService: IndexService;
@@ -78,7 +78,10 @@ function warmStartAiInBackground(): void {
     if (!ok) {
       extLog.error('Background AI start failed — open Output → Rubynod');
     }
-    await getChatProviderRef()?.pushPanelInit();
+    // Notify webview about bridge readiness so the health indicator updates
+    getChatProviderRef()?.post({ type: 'healthUpdate', component: 'bridge', ok: isBridgeReady() });
+    getChatProviderRef()?.notifyServiceReady();
+    await getChatProviderRef()?.pushPanelInit(true);
   })();
 }
 
@@ -139,6 +142,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   indexService = new IndexService();
   indexService.start(context);
+  indexService.setIndexStatusCallback((ready, indexing) => {
+    chatProvider.post({ type: 'indexStatus', ready, indexing });
+  });
   context.subscriptions.push(indexService);
 
   updateChecker = new UpdateChecker(context.extension.packageJSON.version as string);
@@ -176,11 +182,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await getChatProviderRef()?.pushPanelInit();
       vscode.window.showInformationMessage('Rubynod chat panel reloaded.');
     }),
+    vscode.commands.registerCommand('rubynod.diagnoseConnection', async () => {
+      const provider = getChatProviderRef();
+      const serviceUrl = getServiceUrl();
+      const healthy = await isAiServiceHealthy();
+      extLog.info('Connection diagnose', { serviceUrl, healthy, webviewReady: !!provider });
+      showRubynodOutput(false);
+      if (healthy) {
+        provider?.notifyServiceReady();
+        await provider?.pushPanelInit();
+        vscode.window.showInformationMessage(
+          `Rubynod AI is online at ${serviceUrl}. Check chat footer for Ext/Svc diagnostics.`
+        );
+      } else {
+        const ok = await ensureRubynodReady();
+        if (ok) {
+          provider?.notifyServiceReady();
+          await provider?.pushPanelInit();
+          vscode.window.showInformationMessage(`Rubynod AI started at ${serviceUrl}.`);
+        } else {
+          vscode.window.showErrorMessage(
+            `Rubynod AI not reachable at ${serviceUrl}. See Output → Rubynod.`
+          );
+        }
+      }
+    }),
     vscode.commands.registerCommand('rubynod.openSettings', () => {
-      openAllRubynodSettings(context.extension.id);
+      openRubynodSettingsPanel(context);
     }),
     vscode.commands.registerCommand('rubynod.openIndexingSettings', () => {
-      openIndexingSettings(context.extension.id);
+      openRubynodSettingsPanel(context, 'indexing');
     }),
     vscode.commands.registerCommand('rubynod.openRulesConfig', () => {
       void openRulesConfig();
@@ -263,6 +294,54 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(gapPath));
       await vscode.window.showTextDocument(doc, { preview: true });
+    }),
+    vscode.commands.registerCommand('rubynod.fixWithRubynod', async (diagnostic?: vscode.Diagnostic) => {
+      const editor = vscode.window.activeTextEditor;
+      const diags = diagnostic
+        ? [diagnostic]
+        : editor
+          ? vscode.languages.getDiagnostics(editor.document.uri).filter((d) => d.severity === vscode.DiagnosticSeverity.Error)
+          : [];
+      if (!editor && diags.length === 0) {
+        vscode.window.showWarningMessage('Open a file with errors to use Fix with Rubynod.');
+        return;
+      }
+      await vscode.commands.executeCommand('rubynod.chatView.focus');
+      await ensureRubynodReady();
+      const filePath = editor ? vscode.workspace.asRelativePath(editor.document.uri) : '(unknown)';
+      const errorLines = diags.slice(0, 5).map(
+        (d) => `${filePath}:${d.range.start.line + 1} — ${d.message}`
+      );
+      const message =
+        `Fix these errors in @${filePath}:\n\n` +
+        (errorLines.length ? errorLines.join('\n') : '(see Problems panel)');
+      getChatProviderRef()?.prefillComposer?.(message);
+    }),
+    vscode.commands.registerCommand('rubynod.testRetrieval', async () => {
+      const query = await vscode.window.showInputBox({ prompt: 'Test codebase retrieval — enter a query' });
+      if (!query?.trim()) return;
+      if (!(await ensureRubynodReady())) {
+        vscode.window.showWarningMessage('Rubynod AI service is offline.');
+        return;
+      }
+      try {
+        const res = await fetch(`${getServiceUrl()}/index/test-retrieval`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspaceRoot: getWorkspaceRoot(), query }),
+        });
+        const data = (await res.json()) as { count: number; results: Array<{ path: string; startLine: number; score: number; preview: string }> };
+        const lines = [`Retrieval results for: "${query}"`, `Found ${data.count} chunks`, ''];
+        for (const r of data.results ?? []) {
+          lines.push(`• ${r.path}:${r.startLine} (score: ${r.score.toFixed(3)})\n  ${r.preview.replace(/\n/g, ' ').slice(0, 120)}`);
+        }
+        const panel = vscode.window.createOutputChannel('Rubynod Retrieval');
+        panel.clear();
+        panel.appendLine(lines.join('\n'));
+        panel.show(true);
+      } catch (e) {
+        vscode.window.showErrorMessage(`Retrieval test failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
     })
   );
 }

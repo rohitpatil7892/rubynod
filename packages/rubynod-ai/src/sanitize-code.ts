@@ -51,6 +51,8 @@ export function stripBrokenJsonTail(contents: string): string {
 /** Leaked tool-call JSON (structure is predictable — not open-ended prose). */
 export function looksLikeToolCallJsonLeak(contents: string): boolean {
   const c = contents.trim();
+  if (/\[tool[_\s-]?calls?\]/i.test(c)) return true;
+  if (/^\{\s*$/.test(c)) return true;
   if (/^\{\s*"name"\s*:\s*"(?:write_file|read_file|search_replace|glob|grep)"/m.test(c)) {
     return true;
   }

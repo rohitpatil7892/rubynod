@@ -20,6 +20,7 @@ import {
   inspectWorkspaceSetup,
   isWritePathAllowedForMessage,
 } from './project-context.js';
+import { isSensitivePath, redactSecrets } from './sanitize-context.js';
 import { inferReadFilePath } from './service-path.js';
 import { prepareJsonWrite } from './json-write.js';
 import { ensurePackageJsonDependencies } from './package-deps.js';
@@ -186,6 +187,28 @@ export function getToolDefinitions(
           type: 'object',
           properties: { query: { type: 'string' }, limit: { type: 'number' } },
           required: ['query'],
+        },
+      },
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: 'find_symbol',
+        description:
+          'Use VS Code LSP to find definition, references, or document symbols for a symbol in a file. Useful for multi-file edits and cross-file navigation.',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: {
+              type: 'string',
+              enum: ['definition', 'references', 'symbols'],
+              description: '"definition" — go-to-def; "references" — find all usages; "symbols" — outline',
+            },
+            file: { type: 'string', description: 'Workspace-relative file path' },
+            line: { type: 'number', description: 'Line number (1-based) of the symbol' },
+            character: { type: 'number', description: 'Column (0-based) of the symbol' },
+          },
+          required: ['action', 'file'],
         },
       },
     },
@@ -388,16 +411,27 @@ async function executeToolInner(
           'Use a real path such as shared/booking-api-client.service.ts or package.json.'
         );
       }
+      if (isSensitivePath(p)) {
+        return (
+          `Warning: ${p} looks like a sensitive file (credentials, private key, or .env). ` +
+          `Reading it would expose secrets to the AI. If you intended this, explicitly confirm in chat.`
+        );
+      }
       if (bridge) {
-        return bridge.readFile(p, args.offset as number | undefined, args.limit as number | undefined);
+        const raw = await bridge.readFile(p, args.offset as number | undefined, args.limit as number | undefined);
+        return typeof raw === 'string' ? redactSecrets(raw) : String(raw);
       }
       const abs = path.resolve(ws, p);
+      const wsResolved = path.resolve(ws);
+      if (!abs.startsWith(wsResolved + path.sep) && abs !== wsResolved) {
+        return `Error: Path "${p}" is outside the workspace root — access denied.`;
+      }
       if (!fs.existsSync(abs)) return `Error: File not found: ${p}`;
       const content = fs.readFileSync(abs, 'utf8');
       const lines = content.split('\n');
       const start = ((args.offset as number) ?? 1) - 1;
       const end = args.limit ? start + (args.limit as number) : lines.length;
-      return lines.slice(start, end).map((l, i) => `${start + i + 1}|${l}`).join('\n');
+      return redactSecrets(lines.slice(start, end).map((l, i) => `${start + i + 1}|${l}`).join('\n'));
     }
     case 'write_file': {
       const normalized = normalizeWriteFileArgs(args);
@@ -590,10 +624,26 @@ async function executeToolInner(
       return '(no IDE bridge — lints unavailable)';
     case 'codebase_search': {
       if (!ctx.indexer) return 'Indexer not ready — run Rubynod: Build Codebase Index';
-      const pack = ctx.indexer.getContextPack(args.query as string, {
+      const pack = await ctx.indexer.getContextPackAsync(args.query as string, {
         limit: (args.limit as number) ?? 12,
       });
       return pack.formatted || '(no results)';
+    }
+    case 'find_symbol': {
+      if (!ctx.bridge?.findDefinition) return 'Symbol graph not available (no IDE bridge)';
+      const file = args.file as string;
+      const line = ((args.line as number) ?? 1) - 1; // convert to 0-based
+      const character = (args.character as number) ?? 0;
+      switch (args.action) {
+        case 'definition':
+          return await ctx.bridge.findDefinition(file, line, character);
+        case 'references':
+          return await ctx.bridge.findReferences!(file, line, character);
+        case 'symbols':
+          return await ctx.bridge.getDocumentSymbols!(file);
+        default:
+          return `Unknown action: ${args.action}`;
+      }
     }
     case 'todo_write':
       return JSON.stringify(args);

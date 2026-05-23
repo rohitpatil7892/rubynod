@@ -38,5 +38,11 @@ export function createHttpIdeBridge(): IdeBridge {
     getSelection: () => callBridge('getSelection', []),
     getTerminalBuffer: () => callBridge('getTerminalBuffer', []),
     getGitContext: () => callBridge('getGitContext', []),
+    findDefinition: (fileUri, line, character) =>
+      callBridge('findDefinition', [fileUri, line, character]),
+    findReferences: (fileUri, line, character) =>
+      callBridge('findReferences', [fileUri, line, character]),
+    getDocumentSymbols: (fileUri) =>
+      callBridge('getDocumentSymbols', [fileUri]),
   };
 }

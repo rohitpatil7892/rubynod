@@ -3,10 +3,42 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { getWorkspaceRoot, requiresFileApproval } from './settings';
+import { getWorkspaceRoot, requiresFileApproval, getTerminalAllowlist } from './settings';
 import { buildRipgrepShell, isWindows } from './platform';
 import { writeWorkspaceFile } from './file-write';
 import { prepareJsonWrite } from './json-write';
+
+/** Commands matching these patterns are blocked in safe mode. */
+const BLOCKED_TERMINAL_PATTERNS = [
+  /rm\s+(-[rRf]+\s+){0,3}(\/|~|\.\.\/|"\/|'\/)/, // rm -rf /
+  /:\s*\(\s*\)\s*\{[^}]*:\s*\|[^}]*\}/, // fork bomb
+  /curl\s+[^|]*\|\s*(?:bash|sh|zsh)/, // curl | sh
+  /wget\s+[^|]*\|\s*(?:bash|sh|zsh)/, // wget | sh
+  />\s*(\/etc\/passwd|\/etc\/shadow|~\/\.(?:bash|zsh|fish)(?:rc|_profile))/, // overwrite system files
+  /mkfs|fdisk|dd\s+if=/, // disk operations
+  /shutdown|reboot|halt\b/,
+  /chmod\s+[0-7]{3,4}\s+\/(?:etc|bin|usr|boot)/, // chmod system dirs
+];
+
+function isBlockedTerminalCommand(command: string): string | null {
+  for (const re of BLOCKED_TERMINAL_PATTERNS) {
+    if (re.test(command)) {
+      return `Command blocked by Rubynod terminal safe mode: matches dangerous pattern (${re.source.slice(0, 50)}…). Disable safe mode in settings if you intend this.`;
+    }
+  }
+  return null;
+}
+
+/** Resolve and jail a path inside the workspace root; return null if outside. */
+function resolveInWorkspace(filePath: string, workspaceRoot: string): string | null {
+  const abs = path.isAbsolute(filePath) ? filePath : path.join(workspaceRoot, filePath);
+  const resolved = path.resolve(abs);
+  const wsResolved = path.resolve(workspaceRoot);
+  if (!resolved.startsWith(wsResolved + path.sep) && resolved !== wsResolved) {
+    return null;
+  }
+  return resolved;
+}
 
 const execAsync = promisify(exec);
 
@@ -40,12 +72,15 @@ export function createIdeBridge(): Record<string, (...args: any[]) => Promise<un
       if (typeof filePath !== 'string' || !filePath.trim()) {
         return 'Error: read_file path is required (model sent null or empty path)';
       }
-      const abs = path.isAbsolute(filePath) ? filePath : path.join(ws(), filePath);
-      if (!fs.existsSync(abs)) {
+      const jailed = resolveInWorkspace(filePath, ws());
+      if (!jailed) {
+        return `Error: Path "${filePath}" is outside the workspace root — access denied.`;
+      }
+      if (!fs.existsSync(jailed)) {
         return `Error: File not found: ${filePath}`;
       }
       try {
-        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(abs));
+        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(jailed));
         const lines = doc.getText().split('\n');
         const start = (offset ?? 1) - 1;
         const end = limit ? start + limit : lines.length;
@@ -58,6 +93,10 @@ export function createIdeBridge(): Record<string, (...args: any[]) => Promise<un
       if (typeof filePath !== 'string' || !filePath.trim()) {
         return 'Error: write_file path is required (model sent null or empty path)';
       }
+      const jailed = resolveInWorkspace(filePath, ws());
+      if (!jailed) {
+        return `Error: Path "${filePath}" is outside the workspace root — write denied.`;
+      }
       if (requiresFileApproval()) {
         return (
           `Proposed write to ${filePath} (${content.length} chars). ` +
@@ -68,6 +107,8 @@ export function createIdeBridge(): Record<string, (...args: any[]) => Promise<un
       return `Wrote ${filePath} (${content.length} chars)`;
     },
     searchReplace: async (filePath: string, oldStr: string, newStr: string, replaceAll?: boolean) => {
+      const jailCheck = resolveInWorkspace(filePath, ws());
+      if (!jailCheck) return `Error: Path "${filePath}" is outside the workspace root — write denied.`;
       const abs = path.isAbsolute(filePath) ? filePath : path.join(ws(), filePath);
       if (!fs.existsSync(abs)) return `Error: File not found: ${filePath}`;
       const openDoc = vscode.workspace.textDocuments.find(
@@ -116,8 +157,15 @@ export function createIdeBridge(): Record<string, (...args: any[]) => Promise<un
         .join('\n');
     },
     runTerminal: async (command: string, cwd?: string, blockUntilMs?: number) => {
+      const blocked = isBlockedTerminalCommand(command);
+      if (blocked) {
+        return `Rejected: ${blocked}`;
+      }
       const { isAutoApproveTerminal, isYoloMode } = await import('./settings');
-      const autoApprove = isYoloMode() || isAutoApproveTerminal();
+      const allowlist = getTerminalAllowlist();
+      const firstToken = command.trimStart().split(/\s+/)[0] ?? '';
+      const isAllowlisted = allowlist.some((a) => firstToken === a || firstToken.endsWith('/' + a));
+      const autoApprove = isYoloMode() || isAutoApproveTerminal() || isAllowlisted;
       if (!autoApprove) {
         const ok = await vscode.window.showWarningMessage(
           `Rubynod wants to run this command:\n\n${command}\n\nApprove to run in the integrated terminal.`,
@@ -160,11 +208,65 @@ export function createIdeBridge(): Record<string, (...args: any[]) => Promise<un
     getGitContext: async () => {
       try {
         const { stdout: status } = await execAsync('git status -sb', { cwd: ws() });
-        const { stdout: diff } = await execAsync('git diff --stat HEAD 2>/dev/null | head -80', { cwd: ws() });
-        const { stdout: log } = await execAsync('git log -5 --oneline 2>/dev/null', { cwd: ws() });
-        return `## status\n${status}\n## diff\n${diff}\n## log\n${log}`;
+        const { stdout: stat } = await execAsync('git diff --stat HEAD 2>/dev/null', { cwd: ws() }).catch(() => ({ stdout: '' }));
+        const { stdout: log } = await execAsync('git log -5 --oneline 2>/dev/null', { cwd: ws() }).catch(() => ({ stdout: '' }));
+        const { stdout: rawDiff } = await execAsync('git diff HEAD -- . 2>/dev/null', { cwd: ws() }).catch(() => ({ stdout: '' }));
+        const diffCapped = rawDiff.split('\n').slice(0, 120).join('\n');
+        return `## status\n${status.trim()}\n## diff --stat\n${stat.trim()}\n## log\n${log.trim()}${diffCapped ? `\n## diff (capped 120 lines)\n${diffCapped}` : ''}`;
       } catch {
         return '(not a git repo)';
+      }
+    },
+    findDefinition: async (fileUri: string, line: number, character: number) => {
+      try {
+        const uri = vscode.Uri.file(path.isAbsolute(fileUri) ? fileUri : path.join(ws(), fileUri));
+        const pos = new vscode.Position(line, character);
+        const locs = await vscode.commands.executeCommand<vscode.Location[]>(
+          'vscode.executeDefinitionProvider', uri, pos
+        );
+        if (!locs?.length) return '[]';
+        return JSON.stringify(locs.map((l) => ({
+          path: path.relative(ws(), l.uri.fsPath),
+          line: l.range.start.line + 1,
+        })));
+      } catch {
+        return '[]';
+      }
+    },
+    findReferences: async (fileUri: string, line: number, character: number) => {
+      try {
+        const uri = vscode.Uri.file(path.isAbsolute(fileUri) ? fileUri : path.join(ws(), fileUri));
+        const pos = new vscode.Position(line, character);
+        const locs = await vscode.commands.executeCommand<vscode.Location[]>(
+          'vscode.executeReferenceProvider', uri, pos
+        );
+        if (!locs?.length) return '[]';
+        // Dedupe by file
+        const seen = new Set<string>();
+        const refs: { path: string; line: number }[] = [];
+        for (const l of locs) {
+          const rel = path.relative(ws(), l.uri.fsPath);
+          if (!seen.has(rel)) {
+            seen.add(rel);
+            refs.push({ path: rel, line: l.range.start.line + 1 });
+          }
+        }
+        return JSON.stringify(refs.slice(0, 40));
+      } catch {
+        return '[]';
+      }
+    },
+    getDocumentSymbols: async (fileUri: string) => {
+      try {
+        const uri = vscode.Uri.file(path.isAbsolute(fileUri) ? fileUri : path.join(ws(), fileUri));
+        const syms = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+          'vscode.executeDocumentSymbolProvider', uri
+        );
+        if (!syms?.length) return '[]';
+        const flat = syms.map((s) => ({ name: s.name, kind: vscode.SymbolKind[s.kind], line: s.range.start.line + 1 }));
+        return JSON.stringify(flat);
+      } catch {
+        return '[]';
       }
     },
   };

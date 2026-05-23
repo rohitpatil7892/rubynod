@@ -36,10 +36,15 @@ function serverChildEnv(port: string): NodeJS.ProcessEnv {
 export { getBundledServerEntry };
 
 export async function isAiServiceHealthy(): Promise<boolean> {
+  const url = `${getServiceUrl()}/health`;
   try {
-    const res = await fetch(`${getServiceUrl()}/health`, { signal: AbortSignal.timeout(2000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) {
+      log(`Health check HTTP ${res.status} at ${url}`);
+    }
     return res.ok;
-  } catch {
+  } catch (err) {
+    log(`Health check failed at ${url}: ${err instanceof Error ? err.message : String(err)}`);
     return false;
   }
 }
@@ -250,7 +255,7 @@ export async function ensureAiServiceStarted(extensionPath: string): Promise<boo
 
   const useInProcess = vscode.workspace
     .getConfiguration('rubynod')
-    .get<boolean>('ai.inProcess', false);
+    .get<boolean>('ai.inProcess', true);
 
   startingPromise = (async () => {
     if (useInProcess && getBundledServerEntry(extensionPath)) {
